@@ -11,6 +11,8 @@ from neon_knights.web import (
     create_character_for_session,
     login,
     request_email_code_for_session,
+    request_password_reset,
+    reset_password,
     run_command_for_session,
     select_character_for_session,
     signup,
@@ -146,6 +148,36 @@ class WebSessionTests(unittest.TestCase):
         output, _ = run_command_for_session(web_session, "admin users", self.store)
 
         self.assertIn("denied", output)
+
+    def test_password_reset_changes_login_password(self) -> None:
+        signup("runner@example.com", "neonpass", self.store)
+
+        reset_request = request_password_reset("runner@example.com", self.store)
+        code = latest_code(self.store, "password-reset")
+        reset_response = reset_password("runner@example.com", code, "newneonpass", self.store)
+
+        self.assertIn("reset code", reset_request["output"])
+        self.assertIn("Password updated", reset_response["output"])
+        with self.assertRaisesRegex(ValueError, "incorrect"):
+            self.store.verify_user("runner@example.com", "neonpass")
+        user = self.store.verify_user("runner@example.com", "newneonpass")
+        self.assertEqual(user.email, "runner@example.com")
+
+
+def latest_code(store: AuthStore, purpose: str) -> str:
+    with store.connect() as db:
+        row = db.execute(
+            """
+            SELECT code FROM email_codes
+            WHERE purpose = ?
+            ORDER BY created_at DESC, id DESC
+            LIMIT 1
+            """,
+            (purpose,),
+        ).fetchone()
+    if row is None:
+        raise AssertionError(f"No code found for {purpose}")
+    return str(row["code"])
 
 
 if __name__ == "__main__":

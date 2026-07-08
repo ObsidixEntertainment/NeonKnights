@@ -9,7 +9,7 @@ The first playable slice includes:
 - Factions: Blood Court, Pack Union, Hex Grid, Chrome Synod, Synthetic Choir, and Infernal Compact.
 - A small connected city district with NPCs, room descriptions, travel, scanning, faction joining, and augment installation.
 - Inventory, gear, shops, starter combat, ASCII room flair, and a short tutorial.
-- Email signup/login with two character slots per account, verification codes, login notices, and a first-admin bootstrap flow.
+- Email signup/login with two character slots per account, verification codes, login notices, password reset codes, and a first-admin bootstrap flow.
 - A browser mode with a neon-gothic city backdrop, a local CLI mode, and a simple TCP command server mode.
 
 ## Run Locally
@@ -68,7 +68,7 @@ $env:NEON_KNIGHTS_SMTP_PASSWORD="smtp-password"
 $env:NEON_KNIGHTS_MAIL_FROM="Neon Knights <no-reply@example.com>"
 ```
 
-Without SMTP, the app writes `.eml` files to `mail_outbox/` so signup, login, verification, and admin emails are still testable locally. Neon Knights never emails passwords; admin emails say which email to use and remind the admin to use the password they just entered.
+Without SMTP, the app writes `.eml` files to `mail_outbox/` so signup, login, verification, password reset, and admin emails are still testable locally. Neon Knights never emails passwords; admin emails say which email to use and remind the admin to use the password they just entered.
 
 Or install the script entry points:
 

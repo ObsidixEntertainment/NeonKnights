@@ -132,6 +132,23 @@ class AuthStore:
             raise ValueError("Email or password is incorrect.")
         return user_from_row(row)
 
+    def set_password(self, user_id: int, password: str) -> User:
+        validate_password(password)
+        salt, password_hash = hash_password(password)
+        with self.connect() as db:
+            db.execute(
+                """
+                UPDATE users
+                SET password_salt = ?, password_hash = ?
+                WHERE id = ?
+                """,
+                (salt, password_hash, user_id),
+            )
+        user = self.get_user(user_id)
+        if user is None:
+            raise ValueError("User not found.")
+        return user
+
     def get_user(self, user_id: int) -> User | None:
         with self.connect() as db:
             row = db.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()

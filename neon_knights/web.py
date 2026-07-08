@@ -89,6 +89,20 @@ class NeonKnightsHandler(BaseHTTPRequestHandler):
                 self.send_json(response, cookie=token)
                 return
 
+            if path == "/api/request-password-reset":
+                response = request_password_reset(str(payload.get("email", "")))
+                self.send_json(response)
+                return
+
+            if path == "/api/reset-password":
+                response = reset_password(
+                    str(payload.get("email", "")),
+                    str(payload.get("code", "")),
+                    str(payload.get("password", "")),
+                )
+                self.send_json(response)
+                return
+
             if path == "/api/logout":
                 token = self.current_token()
                 if token:
@@ -268,6 +282,33 @@ def admin_bootstrap(
     response = with_mail(account_payload(WEB_SESSIONS[token], store), delivery)
     response["output"] = "First admin account claimed. Your admin login details were sent to your email channel."
     return token, response
+
+
+def request_password_reset(email: str, store: AuthStore | None = None) -> dict[str, Any]:
+    store = store or get_store()
+    user = store.get_user_by_email(email)
+    delivery: MailResult | None = None
+    if user is not None:
+        code = store.create_email_code(user.id, "password-reset")
+        delivery = safe_send_mail(user.email, "Neon Knights password reset", password_reset_body(user, code))
+    response = anonymous_payload()
+    response["output"] = "If that email exists, a reset code was sent."
+    if delivery is not None:
+        response["emailDelivery"] = mail_result_to_dict(delivery)
+    return response
+
+
+def reset_password(email: str, code: str, password: str, store: AuthStore | None = None) -> dict[str, Any]:
+    store = store or get_store()
+    user = store.get_user_by_email(email)
+    if user is None:
+        raise ValueError("Password reset failed.")
+    store.verify_email_code(user.id, code, "password-reset")
+    user = store.set_password(user.id, password)
+    delivery = safe_send_mail(user.email, "Neon Knights password changed", password_changed_body(user))
+    response = with_mail(anonymous_payload(), delivery)
+    response["output"] = "Password updated. Log in with the new password."
+    return response
 
 
 def web_session_from_user(user: User) -> WebSession:
@@ -519,6 +560,27 @@ def login_notice_body(user: User, code: str) -> str:
     )
 
 
+def password_reset_body(user: User, code: str) -> str:
+    role = "Admin" if user.is_admin else "Player"
+    return (
+        "Neon Knights password reset requested.\n\n"
+        f"Account: {user.email}\n"
+        f"Role: {role}\n"
+        f"Password reset code: {code}\n\n"
+        "Enter this code in the browser with a new password. If you did not request this, ignore this email.\n"
+    )
+
+
+def password_changed_body(user: User) -> str:
+    role = "Admin" if user.is_admin else "Player"
+    return (
+        "Your Neon Knights password was changed.\n\n"
+        f"Account: {user.email}\n"
+        f"Role: {role}\n\n"
+        "If this was not you, contact an admin immediately. Neon Knights never emails your password.\n"
+    )
+
+
 def admin_bootstrap_body(user: User, code: str) -> str:
     return (
         "Your first Neon Knights admin account was claimed.\n\n"
@@ -764,7 +826,7 @@ INDEX_HTML = r"""<!doctype html>
 
     .auth-grid {
       display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
       gap: 0.75rem;
       padding: 0.85rem;
       border-top: 1px solid var(--line);
@@ -958,6 +1020,13 @@ INDEX_HTML = r"""<!doctype html>
           <input id="adminBootstrapKey" type="password" placeholder="Bootstrap key" autocomplete="one-time-code" required>
           <button type="submit">Claim Admin</button>
         </form>
+        <form id="resetForm" class="auth-form">
+          <input id="resetEmail" type="email" placeholder="Reset email" autocomplete="email" required>
+          <input id="resetCode" maxlength="12" placeholder="Reset code" autocomplete="one-time-code">
+          <input id="resetPassword" type="password" placeholder="New password" autocomplete="new-password">
+          <button id="sendResetButton" type="button">Send Reset</button>
+          <button type="submit">Set Password</button>
+        </form>
       </div>
 
       <form id="verifyForm" class="composer verify hidden">
@@ -1021,6 +1090,8 @@ INDEX_HTML = r"""<!doctype html>
     const loginForm = document.querySelector("#loginForm");
     const signupForm = document.querySelector("#signupForm");
     const adminForm = document.querySelector("#adminForm");
+    const resetForm = document.querySelector("#resetForm");
+    const sendResetButton = document.querySelector("#sendResetButton");
     const verifyForm = document.querySelector("#verifyForm");
     const sendCodeButton = document.querySelector("#sendCodeButton");
     const createForm = document.querySelector("#createForm");
@@ -1188,6 +1259,34 @@ INDEX_HTML = r"""<!doctype html>
         });
         log.textContent = "";
         append(data.output || "Admin account claimed.", "system");
+        appendDelivery(data);
+        renderAccount(data);
+      } catch (error) {
+        append(error.message, "system");
+      }
+    });
+
+    sendResetButton.addEventListener("click", async () => {
+      try {
+        const data = await postJson("/api/request-password-reset", {
+          email: document.querySelector("#resetEmail").value
+        });
+        append(data.output || "Reset code sent.", "system");
+        appendDelivery(data);
+      } catch (error) {
+        append(error.message, "system");
+      }
+    });
+
+    resetForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      try {
+        const data = await postJson("/api/reset-password", {
+          email: document.querySelector("#resetEmail").value,
+          code: document.querySelector("#resetCode").value,
+          password: document.querySelector("#resetPassword").value
+        });
+        append(data.output || "Password updated.", "system");
         appendDelivery(data);
         renderAccount(data);
       } catch (error) {
