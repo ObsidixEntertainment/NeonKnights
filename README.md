@@ -9,7 +9,7 @@ The first playable slice includes:
 - Factions: Blood Court, Pack Union, Hex Grid, Chrome Synod, Synthetic Choir, and Infernal Compact.
 - A small connected city district with NPCs, room descriptions, travel, scanning, faction joining, and augment installation.
 - Inventory, gear, shops, starter combat, ASCII room flair, and a short tutorial.
-- Email signup/login with two character slots per account.
+- Email signup/login with two character slots per account, verification codes, login notices, and a first-admin bootstrap flow.
 - A browser mode with a neon-gothic city backdrop, a local CLI mode, and a simple TCP command server mode.
 
 ## Run Locally
@@ -33,6 +33,42 @@ http://127.0.0.1:8000
 ```
 
 Local browser accounts are stored in `neon_knights.sqlite3` by default. On Render Free, local SQLite data is demo-grade because free web services do not preserve filesystem changes across restarts or deploys. Use a paid Render disk or a managed database before treating accounts as permanent.
+
+## Admin Bootstrap And Email Auth
+
+Set a first-admin key before launch:
+
+```powershell
+$env:NEON_KNIGHTS_ADMIN_BOOTSTRAP_KEY="your-private-first-admin-key"
+```
+
+Then open the browser app and use the Claim Admin form with:
+
+- Admin email
+- Admin password
+- Bootstrap key
+
+Bootstrap closes automatically after the first admin account exists. Admins can use in-game admin commands from the command box:
+
+```text
+admin help
+admin users
+admin grant player@example.com
+admin verify player@example.com
+admin me
+```
+
+Email delivery uses SMTP when configured:
+
+```powershell
+$env:NEON_KNIGHTS_SMTP_HOST="smtp.example.com"
+$env:NEON_KNIGHTS_SMTP_PORT="587"
+$env:NEON_KNIGHTS_SMTP_USERNAME="smtp-user"
+$env:NEON_KNIGHTS_SMTP_PASSWORD="smtp-password"
+$env:NEON_KNIGHTS_MAIL_FROM="Neon Knights <no-reply@example.com>"
+```
+
+Without SMTP, the app writes `.eml` files to `mail_outbox/` so signup, login, verification, and admin emails are still testable locally. Neon Knights never emails passwords; admin emails say which email to use and remind the admin to use the password they just entered.
 
 Or install the script entry points:
 
@@ -75,6 +111,7 @@ factions
 join synthetic choir
 augments
 install bionic-eyes
+admin help
 whoami
 quit
 ```
@@ -97,4 +134,4 @@ Start Command: python -m neon_knights.web --host 0.0.0.0
 Health Check Path: /healthz
 ```
 
-Push the repo to GitHub, GitLab, Bitbucket, or another public Git URL, then create a Render Blueprint or Web Service from that repository.
+Push the repo to GitHub, GitLab, Bitbucket, or another public Git URL, then create a Render Blueprint or Web Service from that repository. For an existing Render Blueprint, add new `sync: false` secret environment variables manually in the Render dashboard.

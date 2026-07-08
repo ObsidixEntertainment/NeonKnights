@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import secrets
 import json
 import os
 import re
@@ -26,6 +27,8 @@ PASSWORD_ITERATIONS = 200_000
 class User:
     id: int
     email: str
+    email_verified: bool
+    is_admin: bool
 
 
 @dataclass(frozen=True)
@@ -63,6 +66,8 @@ class AuthStore:
                     email TEXT NOT NULL UNIQUE COLLATE NOCASE,
                     password_salt TEXT NOT NULL,
                     password_hash TEXT NOT NULL,
+                    email_verified INTEGER NOT NULL DEFAULT 0,
+                    is_admin INTEGER NOT NULL DEFAULT 0,
                     created_at INTEGER NOT NULL
                 )
                 """
@@ -84,8 +89,24 @@ class AuthStore:
                 )
                 """
             )
+            db.execute(
+                """
+                CREATE TABLE IF NOT EXISTS email_codes (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    purpose TEXT NOT NULL,
+                    code TEXT NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    expires_at INTEGER NOT NULL,
+                    used_at INTEGER,
+                    FOREIGN KEY(user_id) REFERENCES users(id)
+                )
+                """
+            )
+            ensure_column(db, "users", "email_verified", "INTEGER NOT NULL DEFAULT 0")
+            ensure_column(db, "users", "is_admin", "INTEGER NOT NULL DEFAULT 0")
 
-    def create_user(self, email: str, password: str) -> User:
+    def create_user(self, email: str, password: str, *, is_admin: bool = False, email_verified: bool = False) -> User:
         email = normalize_email(email)
         validate_password(password)
         salt, password_hash = hash_password(password)
@@ -94,12 +115,12 @@ class AuthStore:
             with self.connect() as db:
                 cursor = db.execute(
                     """
-                    INSERT INTO users (email, password_salt, password_hash, created_at)
-                    VALUES (?, ?, ?, ?)
+                    INSERT INTO users (email, password_salt, password_hash, email_verified, is_admin, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
                     """,
-                    (email, salt, password_hash, now),
+                    (email, salt, password_hash, int(email_verified), int(is_admin), now),
                 )
-                return User(id=int(cursor.lastrowid), email=email)
+                return User(id=int(cursor.lastrowid), email=email, email_verified=email_verified, is_admin=is_admin)
         except sqlite3.IntegrityError as exc:
             raise ValueError("That email is already signed up.") from exc
 
@@ -109,12 +130,84 @@ class AuthStore:
             row = db.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
         if row is None or not verify_password(password, row["password_salt"], row["password_hash"]):
             raise ValueError("Email or password is incorrect.")
-        return User(id=int(row["id"]), email=str(row["email"]))
+        return user_from_row(row)
 
     def get_user(self, user_id: int) -> User | None:
         with self.connect() as db:
-            row = db.execute("SELECT id, email FROM users WHERE id = ?", (user_id,)).fetchone()
-        return User(id=int(row["id"]), email=str(row["email"])) if row else None
+            row = db.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+        return user_from_row(row) if row else None
+
+    def get_user_by_email(self, email: str) -> User | None:
+        email = normalize_email(email)
+        with self.connect() as db:
+            row = db.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
+        return user_from_row(row) if row else None
+
+    def admin_count(self) -> int:
+        with self.connect() as db:
+            row = db.execute("SELECT COUNT(*) AS count FROM users WHERE is_admin = 1").fetchone()
+        return int(row["count"])
+
+    def promote_admin(self, user_id: int) -> User:
+        with self.connect() as db:
+            db.execute("UPDATE users SET is_admin = 1 WHERE id = ?", (user_id,))
+        user = self.get_user(user_id)
+        if user is None:
+            raise ValueError("User not found.")
+        return user
+
+    def set_email_verified(self, user_id: int) -> User:
+        with self.connect() as db:
+            db.execute("UPDATE users SET email_verified = 1 WHERE id = ?", (user_id,))
+        user = self.get_user(user_id)
+        if user is None:
+            raise ValueError("User not found.")
+        return user
+
+    def create_email_code(self, user_id: int, purpose: str = "verify-email", ttl_seconds: int = 900) -> str:
+        code = f"{secrets.randbelow(1_000_000):06d}"
+        now = int(time.time())
+        with self.connect() as db:
+            db.execute(
+                "UPDATE email_codes SET used_at = ? WHERE user_id = ? AND purpose = ? AND used_at IS NULL",
+                (now, user_id, purpose),
+            )
+            db.execute(
+                """
+                INSERT INTO email_codes (user_id, purpose, code, created_at, expires_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (user_id, purpose, code, now, now + ttl_seconds),
+            )
+        return code
+
+    def verify_email_code(self, user_id: int, code: str, purpose: str = "verify-email") -> User:
+        code = " ".join(code.strip().split())
+        now = int(time.time())
+        with self.connect() as db:
+            row = db.execute(
+                """
+                SELECT id FROM email_codes
+                WHERE user_id = ? AND purpose = ? AND code = ? AND used_at IS NULL AND expires_at >= ?
+                ORDER BY created_at DESC
+                LIMIT 1
+                """,
+                (user_id, purpose, code, now),
+            ).fetchone()
+            if row is None:
+                raise ValueError("That email code is incorrect or expired.")
+            db.execute("UPDATE email_codes SET used_at = ? WHERE id = ?", (now, int(row["id"])))
+            if purpose == "verify-email":
+                db.execute("UPDATE users SET email_verified = 1 WHERE id = ?", (user_id,))
+        user = self.get_user(user_id)
+        if user is None:
+            raise ValueError("User not found.")
+        return user
+
+    def list_users(self) -> list[User]:
+        with self.connect() as db:
+            rows = db.execute("SELECT * FROM users ORDER BY created_at ASC").fetchall()
+        return [user_from_row(row) for row in rows]
 
     def list_characters(self, user_id: int) -> list[CharacterSummary]:
         with self.connect() as db:
@@ -203,6 +296,21 @@ def normalize_email(email: str) -> str:
     if not EMAIL_RE.match(email):
         raise ValueError("Enter a valid email address.")
     return email
+
+
+def user_from_row(row: sqlite3.Row) -> User:
+    return User(
+        id=int(row["id"]),
+        email=str(row["email"]),
+        email_verified=bool(row["email_verified"]),
+        is_admin=bool(row["is_admin"]),
+    )
+
+
+def ensure_column(db: sqlite3.Connection, table: str, column: str, definition: str) -> None:
+    columns = {row["name"] for row in db.execute(f"PRAGMA table_info({table})").fetchall()}
+    if column not in columns:
+        db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
 
 def normalize_name(name: str) -> str:

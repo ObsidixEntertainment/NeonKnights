@@ -6,3 +6,20 @@ services:
     buildCommand: pip install -e .
     startCommand: python -m neon_knights.web --host 0.0.0.0
     healthCheckPath: /healthz
+    envVars:
+      - key: NEON_KNIGHTS_ADMIN_BOOTSTRAP_KEY
+        sync: false
+      - key: NEON_KNIGHTS_SMTP_HOST
+        sync: false
+      - key: NEON_KNIGHTS_SMTP_PORT
+        value: "587"
+      - key: NEON_KNIGHTS_SMTP_USERNAME
+        sync: false
+      - key: NEON_KNIGHTS_SMTP_PASSWORD
+        sync: false
+      - key: NEON_KNIGHTS_SMTP_TLS
+        value: "1"
+      - key: NEON_KNIGHTS_MAIL_FROM
+        value: "Neon Knights <no-reply@neonknights.local>"
+      - key: NEON_KNIGHTS_REQUIRE_EMAIL_VERIFICATION
+        value: "0"

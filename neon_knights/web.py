@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hmac
 import html
 import json
 import mimetypes
@@ -14,8 +15,9 @@ from typing import Any
 from urllib.parse import urlparse
 from uuid import uuid4
 
-from .auth import AuthStore, CharacterSummary, MAX_CHARACTERS_PER_ACCOUNT
+from .auth import AuthStore, CharacterSummary, MAX_CHARACTERS_PER_ACCOUNT, User
 from .engine import GameSession
+from .mailer import MailResult, send_mail
 from .world import ANCESTRIES, AUGMENTS, FACTIONS, GEAR
 
 
@@ -29,6 +31,8 @@ _STORE: AuthStore | None = None
 class WebSession:
     user_id: int
     email: str
+    email_verified: bool = False
+    is_admin: bool = False
     character_id: int | None = None
     game: GameSession | None = None
 
@@ -76,6 +80,15 @@ class NeonKnightsHandler(BaseHTTPRequestHandler):
                 self.send_json(response, cookie=token)
                 return
 
+            if path == "/api/admin/bootstrap":
+                token, response = admin_bootstrap(
+                    str(payload.get("email", "")),
+                    str(payload.get("password", "")),
+                    str(payload.get("bootstrapKey", "")),
+                )
+                self.send_json(response, cookie=token)
+                return
+
             if path == "/api/logout":
                 token = self.current_token()
                 if token:
@@ -84,6 +97,16 @@ class NeonKnightsHandler(BaseHTTPRequestHandler):
                 return
 
             web_session = self.require_web_session()
+
+            if path == "/api/request-email-code":
+                response = request_email_code_for_session(web_session)
+                self.send_json(response)
+                return
+
+            if path == "/api/verify-email":
+                response = verify_email_for_session(web_session, str(payload.get("code", "")))
+                self.send_json(response)
+                return
 
             if path == "/api/character":
                 output, response = create_character_for_session(
@@ -203,16 +226,90 @@ def signup(email: str, password: str, store: AuthStore | None = None) -> tuple[s
     store = store or get_store()
     user = store.create_user(email, password)
     token = uuid4().hex
-    WEB_SESSIONS[token] = WebSession(user_id=user.id, email=user.email)
-    return token, account_payload(WEB_SESSIONS[token], store)
+    WEB_SESSIONS[token] = web_session_from_user(user)
+    delivery = send_account_email(user, store, "signup")
+    return token, with_mail(account_payload(WEB_SESSIONS[token], store), delivery)
 
 
 def login(email: str, password: str, store: AuthStore | None = None) -> tuple[str, dict[str, Any]]:
     store = store or get_store()
     user = store.verify_user(email, password)
     token = uuid4().hex
-    WEB_SESSIONS[token] = WebSession(user_id=user.id, email=user.email)
-    return token, account_payload(WEB_SESSIONS[token], store)
+    WEB_SESSIONS[token] = web_session_from_user(user)
+    delivery = send_account_email(user, store, "login")
+    return token, with_mail(account_payload(WEB_SESSIONS[token], store), delivery)
+
+
+def admin_bootstrap(
+    email: str,
+    password: str,
+    bootstrap_key: str,
+    store: AuthStore | None = None,
+) -> tuple[str, dict[str, Any]]:
+    store = store or get_store()
+    expected = os.environ.get("NEON_KNIGHTS_ADMIN_BOOTSTRAP_KEY", "")
+    if not expected:
+        raise ValueError("Admin bootstrap key is not configured on this server.")
+    if store.admin_count() > 0:
+        raise ValueError("Admin bootstrap is closed because an admin already exists.")
+    if not hmac.compare_digest(bootstrap_key.strip(), expected.strip()):
+        raise ValueError("Admin bootstrap key is incorrect.")
+
+    existing = store.get_user_by_email(email)
+    if existing:
+        user = store.verify_user(email, password)
+        user = store.promote_admin(user.id)
+    else:
+        user = store.create_user(email, password, is_admin=True)
+
+    token = uuid4().hex
+    WEB_SESSIONS[token] = web_session_from_user(user)
+    delivery = send_account_email(user, store, "admin-bootstrap")
+    response = with_mail(account_payload(WEB_SESSIONS[token], store), delivery)
+    response["output"] = "First admin account claimed. Your admin login details were sent to your email channel."
+    return token, response
+
+
+def web_session_from_user(user: User) -> WebSession:
+    return WebSession(
+        user_id=user.id,
+        email=user.email,
+        email_verified=user.email_verified,
+        is_admin=user.is_admin,
+    )
+
+
+def refresh_web_session_user(web_session: WebSession, store: AuthStore) -> User:
+    user = store.get_user(web_session.user_id)
+    if user is None:
+        raise ValueError("Account not found.")
+    web_session.email = user.email
+    web_session.email_verified = user.email_verified
+    web_session.is_admin = user.is_admin
+    return user
+
+
+def request_email_code_for_session(web_session: WebSession, store: AuthStore | None = None) -> dict[str, Any]:
+    store = store or get_store()
+    user = refresh_web_session_user(web_session, store)
+    delivery = send_account_email(user, store, "verify-email")
+    response = with_mail(account_payload(web_session, store), delivery)
+    response["output"] = "Email verification code sent."
+    return response
+
+
+def verify_email_for_session(
+    web_session: WebSession,
+    code: str,
+    store: AuthStore | None = None,
+) -> dict[str, Any]:
+    store = store or get_store()
+    user = store.verify_email_code(web_session.user_id, code)
+    web_session.email_verified = user.email_verified
+    web_session.is_admin = user.is_admin
+    response = account_payload(web_session, store)
+    response["output"] = "Email verified."
+    return response
 
 
 def create_character_for_session(
@@ -222,6 +319,7 @@ def create_character_for_session(
     store: AuthStore | None = None,
 ) -> tuple[str, dict[str, Any]]:
     store = store or get_store()
+    enforce_verified_email(web_session, store)
     character_id, character = store.create_character(web_session.user_id, name, ancestry)
     game = GameSession(character)
     output = game.intro()
@@ -237,6 +335,7 @@ def select_character_for_session(
     store: AuthStore | None = None,
 ) -> tuple[str, dict[str, Any]]:
     store = store or get_store()
+    enforce_verified_email(web_session, store)
     character = store.load_character(web_session.user_id, character_id)
     web_session.character_id = character_id
     web_session.game = GameSession(character)
@@ -249,8 +348,14 @@ def run_command_for_session(
     store: AuthStore | None = None,
 ) -> tuple[str, dict[str, Any]]:
     store = store or get_store()
+    admin_output = maybe_handle_admin_command(web_session, command, store)
+    if admin_output is not None:
+        return admin_output, account_payload(web_session, store)
+
     if web_session.game is None or web_session.character_id is None:
         raise ValueError("Select or create a character first.")
+
+    enforce_verified_email(web_session, store)
 
     output = web_session.game.handle(command)
     store.save_character(web_session.user_id, web_session.character_id, web_session.game.character)
@@ -272,14 +377,164 @@ def anonymous_payload() -> dict[str, Any]:
 
 def account_payload(web_session: WebSession, store: AuthStore | None = None) -> dict[str, Any]:
     store = store or get_store()
+    user = refresh_web_session_user(web_session, store)
     return {
         "authenticated": True,
-        "user": {"email": web_session.email},
+        "user": {
+            "email": user.email,
+            "emailVerified": user.email_verified,
+            "isAdmin": user.is_admin,
+        },
         "characters": [summary_to_dict(summary) for summary in store.list_characters(web_session.user_id)],
         "maxCharacters": MAX_CHARACTERS_PER_ACCOUNT,
         "currentCharacterId": web_session.character_id,
         "state": session_state(web_session.game, web_session.character_id) if web_session.game else None,
     }
+
+
+def enforce_verified_email(web_session: WebSession, store: AuthStore) -> None:
+    if os.environ.get("NEON_KNIGHTS_REQUIRE_EMAIL_VERIFICATION", "0") != "1":
+        return
+    user = refresh_web_session_user(web_session, store)
+    if not user.email_verified:
+        raise ValueError("Verify your email before entering the city.")
+
+
+def maybe_handle_admin_command(web_session: WebSession, command: str, store: AuthStore) -> str | None:
+    command = " ".join(command.strip().split())
+    if not command.lower().startswith("admin"):
+        return None
+
+    user = refresh_web_session_user(web_session, store)
+    if not user.is_admin:
+        return "Admin channel denied."
+
+    _, _, rest = command.partition(" ")
+    verb, _, target = rest.strip().partition(" ")
+    verb = verb.lower()
+    target = target.strip()
+
+    if not verb or verb == "help":
+        return "\n".join(
+            [
+                "Admin commands:",
+                "  admin users          List accounts and roles.",
+                "  admin grant <email>  Promote an existing account to admin.",
+                "  admin verify <email> Mark an account email as verified.",
+                "  admin me             Show your admin account.",
+            ]
+        )
+    if verb == "me":
+        return f"Admin: {user.email} | verified={user.email_verified}"
+    if verb == "users":
+        lines = ["Accounts:"]
+        for listed in store.list_users():
+            role = "admin" if listed.is_admin else "user"
+            verified = "verified" if listed.email_verified else "unverified"
+            character_count = len(store.list_characters(listed.id))
+            lines.append(f"- {listed.email} | {role} | {verified} | characters={character_count}")
+        return "\n".join(lines)
+    if verb == "grant":
+        if not target:
+            return "Usage: admin grant <email>"
+        target_user = store.get_user_by_email(target)
+        if target_user is None:
+            return f"No account exists for {target}."
+        promoted = store.promote_admin(target_user.id)
+        delivery = safe_send_mail(
+            promoted.email,
+            "Neon Knights admin access granted",
+            admin_grant_body(promoted),
+        )
+        return f"Granted admin to {promoted.email}. {delivery.detail}"
+    if verb == "verify":
+        if not target:
+            return "Usage: admin verify <email>"
+        target_user = store.get_user_by_email(target)
+        if target_user is None:
+            return f"No account exists for {target}."
+        verified = store.set_email_verified(target_user.id)
+        return f"Verified email for {verified.email}."
+    return f"Unknown admin command: {verb}. Try 'admin help'."
+
+
+def send_account_email(user: User, store: AuthStore, event: str) -> MailResult:
+    code = store.create_email_code(user.id)
+    if event == "admin-bootstrap":
+        subject = "Neon Knights first admin login"
+        body = admin_bootstrap_body(user, code)
+    elif event == "login":
+        subject = "Neon Knights login notice"
+        body = login_notice_body(user, code)
+    else:
+        subject = "Neon Knights email verification"
+        body = verification_body(user, code)
+    return safe_send_mail(user.email, subject, body)
+
+
+def safe_send_mail(recipient: str, subject: str, body: str) -> MailResult:
+    try:
+        return send_mail(recipient, subject, body)
+    except Exception as exc:
+        return MailResult(recipient, subject, False, f"Email delivery failed: {exc}")
+
+
+def with_mail(payload: dict[str, Any], result: MailResult) -> dict[str, Any]:
+    payload["emailDelivery"] = mail_result_to_dict(result)
+    return payload
+
+
+def mail_result_to_dict(result: MailResult) -> dict[str, Any]:
+    return {
+        "recipient": result.recipient,
+        "subject": result.subject,
+        "sent": result.sent,
+        "detail": result.detail,
+    }
+
+
+def verification_body(user: User, code: str) -> str:
+    role = "Admin" if user.is_admin else "Player"
+    return (
+        "Welcome to Neon Knights.\n\n"
+        f"Account: {user.email}\n"
+        f"Role: {role}\n"
+        f"Email verification code: {code}\n\n"
+        "Enter this code in the browser to mark your account email as verified. "
+        "Your password is never emailed or stored in plain text.\n"
+    )
+
+
+def login_notice_body(user: User, code: str) -> str:
+    role = "Admin" if user.is_admin else "Player"
+    verified = "yes" if user.email_verified else "no"
+    return (
+        "Neon Knights login notice.\n\n"
+        f"Account: {user.email}\n"
+        f"Role: {role}\n"
+        f"Email verified: {verified}\n"
+        f"Fresh verification code: {code}\n\n"
+        "If this was not you, change your password as soon as reset support is enabled. "
+        "Neon Knights never emails your password.\n"
+    )
+
+
+def admin_bootstrap_body(user: User, code: str) -> str:
+    return (
+        "Your first Neon Knights admin account was claimed.\n\n"
+        f"Admin login email: {user.email}\n"
+        "Admin login password: the password you just entered in the browser.\n"
+        f"Email verification code: {code}\n\n"
+        "Keep the bootstrap key private. Once the first admin exists, bootstrap closes automatically.\n"
+    )
+
+
+def admin_grant_body(user: User) -> str:
+    return (
+        "Neon Knights admin access was granted to this account.\n\n"
+        f"Admin login email: {user.email}\n"
+        "Log in with your existing password. Neon Knights never emails your password.\n"
+    )
 
 
 def summary_to_dict(summary: CharacterSummary) -> dict[str, Any]:
@@ -509,7 +764,7 @@ INDEX_HTML = r"""<!doctype html>
 
     .auth-grid {
       display: grid;
-      grid-template-columns: 1fr 1fr;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
       gap: 0.75rem;
       padding: 0.85rem;
       border-top: 1px solid var(--line);
@@ -529,6 +784,10 @@ INDEX_HTML = r"""<!doctype html>
 
     .roll {
       grid-template-columns: minmax(0, 1fr) minmax(8rem, 13rem) auto;
+    }
+
+    .verify {
+      grid-template-columns: 1fr auto auto;
     }
 
     input, select, button {
@@ -637,6 +896,10 @@ INDEX_HTML = r"""<!doctype html>
         grid-template-columns: 1fr;
       }
 
+      .verify {
+        grid-template-columns: 1fr;
+      }
+
       .quick {
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }
@@ -689,7 +952,19 @@ INDEX_HTML = r"""<!doctype html>
           <input id="signupPassword" type="password" placeholder="Password" autocomplete="new-password" required>
           <button type="submit">Sign Up</button>
         </form>
+        <form id="adminForm" class="auth-form">
+          <input id="adminEmail" type="email" placeholder="Admin email" autocomplete="email" required>
+          <input id="adminPassword" type="password" placeholder="Admin password" autocomplete="new-password" required>
+          <input id="adminBootstrapKey" type="password" placeholder="Bootstrap key" autocomplete="one-time-code" required>
+          <button type="submit">Claim Admin</button>
+        </form>
       </div>
+
+      <form id="verifyForm" class="composer verify hidden">
+        <input id="emailCode" name="emailCode" maxlength="12" placeholder="Email code" autocomplete="one-time-code">
+        <button type="submit">Verify</button>
+        <button id="sendCodeButton" type="button">Send Code</button>
+      </form>
 
       <form id="createForm" class="roll hidden">
         <input id="handle" name="handle" maxlength="32" placeholder="Handle" autocomplete="off" required>
@@ -723,6 +998,8 @@ INDEX_HTML = r"""<!doctype html>
       </div>
       <div class="sheet">
         <div class="stat"><span class="label">Email</span><span id="sheetEmail" class="value">-</span></div>
+        <div class="stat"><span class="label">Role</span><span id="sheetRole" class="value">-</span></div>
+        <div class="stat"><span class="label">Email Auth</span><span id="sheetEmailAuth" class="value">-</span></div>
         <div class="stat"><span class="label">Slots</span><span id="sheetSlots" class="value">0/2</span></div>
         <div id="characterList" class="characters hidden"></div>
         <div class="stat"><span class="label">Handle</span><span id="sheetName" class="value">-</span></div>
@@ -743,6 +1020,9 @@ INDEX_HTML = r"""<!doctype html>
     const authPanel = document.querySelector("#authPanel");
     const loginForm = document.querySelector("#loginForm");
     const signupForm = document.querySelector("#signupForm");
+    const adminForm = document.querySelector("#adminForm");
+    const verifyForm = document.querySelector("#verifyForm");
+    const sendCodeButton = document.querySelector("#sendCodeButton");
     const createForm = document.querySelector("#createForm");
     const commandForm = document.querySelector("#commandForm");
     const commandInput = document.querySelector("#command");
@@ -753,6 +1033,8 @@ INDEX_HTML = r"""<!doctype html>
     const sheet = {
       location: document.querySelector("#location"),
       email: document.querySelector("#sheetEmail"),
+      role: document.querySelector("#sheetRole"),
+      emailAuth: document.querySelector("#sheetEmailAuth"),
       slots: document.querySelector("#sheetSlots"),
       name: document.querySelector("#sheetName"),
       ancestry: document.querySelector("#sheetAncestry"),
@@ -776,17 +1058,21 @@ INDEX_HTML = r"""<!doctype html>
     function setMode(account) {
       const authed = Boolean(account?.authenticated);
       const active = Boolean(account?.state);
+      const admin = Boolean(account?.user?.isAdmin);
+      const emailVerified = Boolean(account?.user?.emailVerified);
       const slotsUsed = account?.characters?.length || 0;
       const maxSlots = account?.maxCharacters || 2;
+      const commandReady = active || (authed && admin);
 
       authPanel.classList.toggle("hidden", authed);
       logoutButton.classList.toggle("hidden", !authed);
+      verifyForm.classList.toggle("hidden", !authed || emailVerified);
       createForm.classList.toggle("hidden", !authed || active || slotsUsed >= maxSlots);
-      commandForm.classList.toggle("hidden", !active);
+      commandForm.classList.toggle("hidden", !commandReady);
       quickCommands.classList.toggle("hidden", !active);
       characterList.classList.toggle("hidden", !authed || active || slotsUsed === 0);
 
-      if (active) {
+      if (commandReady) {
         commandInput.focus();
       }
     }
@@ -807,6 +1093,8 @@ INDEX_HTML = r"""<!doctype html>
 
     function renderAccount(account) {
       sheet.email.textContent = account?.user?.email || "-";
+      sheet.role.textContent = account?.user?.isAdmin ? "Admin" : (account?.authenticated ? "Player" : "-");
+      sheet.emailAuth.textContent = account?.user?.emailVerified ? "Verified" : (account?.authenticated ? "Unverified" : "-");
       sheet.slots.textContent = `${account?.characters?.length || 0}/${account?.maxCharacters || 2}`;
       renderCharacters(account);
       renderState(account?.state || null);
@@ -852,6 +1140,12 @@ INDEX_HTML = r"""<!doctype html>
       return data;
     }
 
+    function appendDelivery(data) {
+      if (data?.emailDelivery?.detail) {
+        append(data.emailDelivery.detail, "system");
+      }
+    }
+
     loginForm.addEventListener("submit", async (event) => {
       event.preventDefault();
       try {
@@ -861,6 +1155,7 @@ INDEX_HTML = r"""<!doctype html>
         });
         log.textContent = "";
         append("Account linked. Select a body or create one.", "system");
+        appendDelivery(data);
         renderAccount(data);
       } catch (error) {
         append(error.message, "system");
@@ -876,6 +1171,48 @@ INDEX_HTML = r"""<!doctype html>
         });
         log.textContent = "";
         append("Account created. Two character slots are available.", "system");
+        appendDelivery(data);
+        renderAccount(data);
+      } catch (error) {
+        append(error.message, "system");
+      }
+    });
+
+    adminForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      try {
+        const data = await postJson("/api/admin/bootstrap", {
+          email: document.querySelector("#adminEmail").value,
+          password: document.querySelector("#adminPassword").value,
+          bootstrapKey: document.querySelector("#adminBootstrapKey").value
+        });
+        log.textContent = "";
+        append(data.output || "Admin account claimed.", "system");
+        appendDelivery(data);
+        renderAccount(data);
+      } catch (error) {
+        append(error.message, "system");
+      }
+    });
+
+    verifyForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      try {
+        const data = await postJson("/api/verify-email", {
+          code: document.querySelector("#emailCode").value
+        });
+        append(data.output || "Email verified.", "system");
+        renderAccount(data);
+      } catch (error) {
+        append(error.message, "system");
+      }
+    });
+
+    sendCodeButton.addEventListener("click", async () => {
+      try {
+        const data = await postJson("/api/request-email-code");
+        append(data.output || "Email code sent.", "system");
+        appendDelivery(data);
         renderAccount(data);
       } catch (error) {
         append(error.message, "system");
@@ -964,7 +1301,7 @@ def serve(host: str, port: int) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run the Neon Knights browser MUD.")
+    parser = argparse.ArgumentParser(description="Run the Neon Knights browser RPG.")
     parser.add_argument("--host", default=os.environ.get("HOST", "127.0.0.1"))
     parser.add_argument("--port", default=int(os.environ.get("PORT", "8000")), type=int)
     args = parser.parse_args()
