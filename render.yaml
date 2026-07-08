@@ -1,0 +1,8 @@
+services:
+  - type: web
+    name: neon-knights
+    runtime: python
+    plan: free
+    buildCommand: pip install -e .
+    startCommand: python -m neon_knights.web --host 0.0.0.0
+    healthCheckPath: /healthz
