@@ -30,6 +30,27 @@ class Augment:
 
 
 @dataclass(frozen=True)
+class Gear:
+    key: str
+    name: str
+    slot: str
+    cost: int
+    power: int
+    armor: int
+    description: str
+
+
+@dataclass(frozen=True)
+class Enemy:
+    key: str
+    name: str
+    hp: int
+    attack: int
+    reward: int
+    description: str
+
+
+@dataclass(frozen=True)
 class NPC:
     key: str
     name: str
@@ -54,7 +75,10 @@ class Room:
     exits: tuple[Exit, ...] = ()
     npcs: tuple[NPC, ...] = ()
     augments_for_sale: tuple[str, ...] = ()
+    gear_for_sale: tuple[str, ...] = ()
+    enemies: tuple[str, ...] = ()
     scan_text: str = ""
+    ascii_art: str = ""
 
 
 @dataclass
@@ -64,9 +88,17 @@ class Character:
     location: str = "redline-station"
     credits: int = 1200
     essence: int = 100
+    hp: int = 30
+    max_hp: int = 30
     faction: str | None = None
     augments: set[str] = field(default_factory=set)
+    inventory: set[str] = field(default_factory=lambda: {"street-knife", "patchwork-coat"})
+    equipment: dict[str, str] = field(default_factory=lambda: {"weapon": "street-knife", "body": "patchwork-coat"})
+    defeated_enemies: set[str] = field(default_factory=set)
+    tutorial_seen: bool = False
 
     def has_augment(self, key: str) -> bool:
         return key in self.augments
 
+    def has_item(self, key: str) -> bool:
+        return key in self.inventory

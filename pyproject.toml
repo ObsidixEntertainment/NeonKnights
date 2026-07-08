@@ -1,7 +1,7 @@
 [project]
 name = "neon-knights-mud"
 version = "0.1.0"
-description = "A cyberpunk fantasy MUD prototype with vampires, werewolves, witches, wizards, cyborgs, augments, and advanced AI characters."
+description = "A cyberpunk fantasy browser RPG inspired by MUD architecture, with supernatural ancestries, cybernetics, accounts, gear, and command-driven play."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = []

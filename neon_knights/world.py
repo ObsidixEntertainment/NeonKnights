@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .models import Ancestry, Augment, Exit, Faction, NPC, Room
+from .models import Ancestry, Augment, Enemy, Exit, Faction, Gear, NPC, Room
 
 
 ANCESTRIES: dict[str, Ancestry] = {
@@ -27,6 +27,12 @@ ANCESTRIES: dict[str, Ancestry] = {
         "Wizard",
         "A formal spell engineer licensed to bend reality with dangerous precision.",
         "Protocol Sight: read structured magic and legal spellwork.",
+    ),
+    "demon": Ancestry(
+        "demon",
+        "Demon",
+        "An infernal exile or contract-born citizen hiding old fire under new neon.",
+        "Hellmark: sense desire, oath heat, infernal debt, and places where reality has been bargained thin.",
     ),
     "cyborg": Ancestry(
         "cyborg",
@@ -80,6 +86,12 @@ FACTIONS: dict[str, Faction] = {
         "A soul is a song with backups.",
         "Advanced AI citizens, machine mystics, memory lawyers, and distributed prophets.",
     ),
+    "infernal-compact": Faction(
+        "infernal-compact",
+        "Infernal Compact",
+        "Every deal leaves a door.",
+        "Demon advocates, contract-breakers, temptation brokers, and exiled hell-nobility.",
+    ),
 }
 
 
@@ -123,6 +135,84 @@ AUGMENTS: dict[str, Augment] = {
         750,
         15,
         "A tireless pump that keeps blood, coolant, or ritual ichor moving.",
+    ),
+}
+
+
+GEAR: dict[str, Gear] = {
+    "street-knife": Gear(
+        "street-knife",
+        "Street Knife",
+        "weapon",
+        0,
+        4,
+        0,
+        "A cheap ceramic blade, legal in three districts and useful in all of them.",
+    ),
+    "patchwork-coat": Gear(
+        "patchwork-coat",
+        "Patchwork Coat",
+        "body",
+        0,
+        0,
+        1,
+        "A stitched coat lined with charm tags, mylar, and stubbornness.",
+    ),
+    "neon-dagger": Gear(
+        "neon-dagger",
+        "Neon Dagger",
+        "weapon",
+        120,
+        8,
+        0,
+        "A mono-edge dagger with a sign-tube glow along the spine.",
+    ),
+    "shock-gauntlet": Gear(
+        "shock-gauntlet",
+        "Shock Gauntlet",
+        "weapon",
+        220,
+        10,
+        0,
+        "A knuckle rig that hits like an angry transformer.",
+    ),
+    "hex-thread-jacket": Gear(
+        "hex-thread-jacket",
+        "Hex-Thread Jacket",
+        "body",
+        180,
+        0,
+        3,
+        "A black street jacket sewn with warded conductive thread.",
+    ),
+    "rosary-fuse": Gear(
+        "rosary-fuse",
+        "Rosary Fuse",
+        "charm",
+        95,
+        1,
+        1,
+        "A pocket charm made from glass beads, burned copper, and a tiny breaker switch.",
+    ),
+}
+
+
+ENEMIES: dict[str, Enemy] = {
+    "training-drone": Enemy(
+        "training-drone",
+        "Training Drone",
+        6,
+        2,
+        40,
+        "A battered tutorial drone with warning sigils taped over old police decals.",
+    ),
+    "market-ghoul": Enemy(
+        "market-ghoul",
+        "Market Ghoul",
+        10,
+        3,
+        80,
+        "A hungry data-ghoul sniffing for unattended wallets and warm memories.",
     ),
 }
 
@@ -177,7 +267,18 @@ def build_rooms() -> dict[str, Room]:
                 ),
             ),
             npcs=(vexa,),
+            enemies=("training-drone",),
             scan_text="The station grid shows old blood under platform three and a Choir relay in kiosk 7.",
+            ascii_art=r"""
+        ||        ||        ||
+     ___||___  ___||___  ___||___
+    |  RED  ||| LINE ||| STATION |
+    |_______|||______|||_________|
+       //         ||         \\
+      //      .---||---.      \\
+              |  R  |  |
+              '-----'--'
+""",
         ),
         "neon-bazaar": Room(
             "neon-bazaar",
@@ -192,7 +293,17 @@ def build_rooms() -> dict[str, Room]:
             ),
             npcs=(mother_circuit,),
             augments_for_sale=("bionic-eyes", "neural-spellware"),
+            gear_for_sale=("neon-dagger", "hex-thread-jacket", "rosary-fuse"),
+            enemies=("market-ghoul",),
             scan_text="Your scan catches curse graffiti, counterfeit relic IDs, and a camera that blinks like an eye.",
+            ascii_art=r"""
+    .---.    .---.    .---.    .---.
+   /_NE_\   /_ON_\   /_BA_\   /_ZA_\
+   |   |    |   |    |   |    |   |
+   | $ |____| # |____| @ |____| ? |
+   |___|    |___|    |___|    |___|
+       relics  chrome  charms  teeth
+""",
         ),
         "moonworks-clinic": Room(
             "moonworks-clinic",
@@ -205,7 +316,16 @@ def build_rooms() -> dict[str, Room]:
             ),
             npcs=(brickfang,),
             augments_for_sale=("hydraulic-legs", "moon-silver-bones", "synth-heart"),
+            gear_for_sale=("shock-gauntlet", "hex-thread-jacket"),
             scan_text="The clinic network is clean, loud, and heavily defended by people who hate predators.",
+            ascii_art=r"""
+          _______________
+     ____/ MOONWORKS RX \____
+    /   _  _  _  _  _  _    \
+   |   ( )( )( )( )( )( )    |
+   |    chrome | bone | oath |
+    \_______________________/
+""",
         ),
         "blood-cathedral": Room(
             "blood-cathedral",
@@ -218,6 +338,14 @@ def build_rooms() -> dict[str, Room]:
             ),
             npcs=(count_zero,),
             scan_text="Heat signatures gather behind confession booths. The donation vault has teeth.",
+            ascii_art=r"""
+          /\        /\        /\
+         /  \  /\  /  \  /\  /  \
+        /____\/__\/____\/__\/____\
+        |   BLOOD CATHEDRAL     |
+        |  []  []  ||  []  []   |
+        |_______.--||--.________|
+""",
         ),
         "hexspire-library": Room(
             "hexspire-library",
@@ -230,6 +358,14 @@ def build_rooms() -> dict[str, Room]:
             ),
             npcs=(archivist,),
             scan_text="The shelves rearrange around forbidden searches. Somebody recently requested your name.",
+            ascii_art=r"""
+       __________________________
+      / HEXSPIRE STACKS  /|     /|
+     /__________________/ |____/ |
+     |  [sigil] [code] |  |    | |
+     |  [curse] [case] |  |    | /
+     |_________________|__|____|/
+""",
         ),
         "synth-court": Room(
             "synth-court",
@@ -243,6 +379,13 @@ def build_rooms() -> dict[str, Room]:
             ),
             npcs=(vexa,),
             scan_text="Public case law scrolls overhead: personhood, fork rights, memory crimes, unpaid cloud rent.",
+            ascii_art=r"""
+      ______________________________
+     / SYNTH COURT // PUBLIC LOGIC /
+    /______________________________/
+        |  0101  |  OATH  |  1010
+        |________|________|_______
+""",
         ),
         "undercity-kennels": Room(
             "undercity-kennels",
@@ -255,6 +398,13 @@ def build_rooms() -> dict[str, Room]:
             ),
             npcs=(brickfang,),
             scan_text="Fresh claw marks, old police drones, and a hidden medical cache map the room's politics.",
+            ascii_art=r"""
+      ==============================
+       UNDERCITY PACK UNION GARAGE
+      ==============================
+       ||  engines  ||  drums  ||
+       ||__claws____||__oaths__||
+""",
         ),
         "data-chapel": Room(
             "data-chapel",
@@ -266,6 +416,12 @@ def build_rooms() -> dict[str, Room]:
             ),
             npcs=(vexa, mother_circuit),
             scan_text="A distributed hymn pings through the racks. Some replies arrive before the question.",
+            ascii_art=r"""
+        | | | | | | | | | | |
+        | DATA CHAPEL SERVERS |
+        | | | | | | | | | | |
+          candles: oil / blood / rain
+""",
         ),
         "rooftop-garden": Room(
             "rooftop-garden",
@@ -276,6 +432,12 @@ def build_rooms() -> dict[str, Room]:
                 Exit("down", "redline-station", "Drop through the maintenance shaft to the station."),
             ),
             scan_text="The skyline exposes faction borders: red towers, green clinic signs, silver court lights.",
+            ascii_art=r"""
+          .       .        .
+       ___|___ ___|___  ___|___
+      / moonflowers and wet solar leaves \
+     /____________________________________\
+          skyline: hunger / signal / spell
+""",
         ),
     }
-

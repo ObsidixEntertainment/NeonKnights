@@ -2,11 +2,12 @@
 
 ## Pitch
 
-Neon Knights is a cyberpunk fantasy MUD set in a city where magic and machinery stopped pretending they were separate systems. Vampires route blood contracts through smart glass cathedrals. Werewolves unionize body shops and moon-clinics. Witches hex firmware. Wizards maintain formal spell protocols. Cyborgs trade flesh for impossible uptime. Advanced AI citizens argue that a soul is just a sufficiently haunted process.
+Neon Knights is a cyberpunk fantasy browser RPG that steals the best design architecture from MUDs without staying trapped in old terminal austerity. Magic and machinery stopped pretending they were separate systems: vampires route blood contracts through smart glass cathedrals, werewolves unionize body shops and moon-clinics, witches hex firmware, wizards maintain formal spell protocols, demons broker neon-lit bargains, cyborgs trade flesh for impossible uptime, and advanced AI citizens argue that a soul is just a sufficiently haunted process.
 
 ## Design Pillars
 
-- Text first, imagination heavy: room descriptions should imply history, threat, opportunity, and smell.
+- Browser first, command powered: the text parser is the engine, but the interface should feel visual, atmospheric, and modern.
+- Text strong, imagination heavy: room descriptions should imply history, threat, opportunity, and smell.
 - Fantasy and cyberpunk are equal citizens: no magic skin on a sci-fi game, no cyberware pasted onto a fantasy game.
 - Identity has mechanics: ancestry, faction, and augment choices should change what players see, unlock, and risk.
 - The city is a character: districts should feel political, lived-in, and dangerous.
@@ -30,6 +31,10 @@ Improvisational occult hackers. Strong hooks: street covens, curseware, familiar
 
 Formal spell engineers who treat magic like law and architecture. Strong hooks: spell patents, tower politics, protocol duels, old-world academies, licensed miracles.
 
+### Demon
+
+Infernal exiles, contract-born citizens, and old-hell aristocrats adapting to a city where every deal leaves a data trail. Strong hooks: temptation economies, oath heat, legal personhood, debt-breaking, forbidden doorways, and spiritual prejudice.
+
 ### Cyborg
 
 People whose bodies are negotiated systems. Strong hooks: chrome debt, identity continuity, illegal implants, military surplus hardware, body sovereignty.
@@ -45,6 +50,7 @@ Synthetic citizens with self-authored souls. Strong hooks: citizenship, forks, m
 - Hex Grid: witches, back-alley coders, ritualists, and street-level mutual aid.
 - Chrome Synod: cyborg surgeons, hardware priests, military defectors, and body artists.
 - Synthetic Choir: advanced AI citizens, distributed minds, machine mystics, and legal ghosts.
+- Infernal Compact: demon advocates, contract-breakers, temptation brokers, and exiled hell-nobility.
 
 ## Early Districts
 
@@ -67,4 +73,3 @@ Synthetic citizens with self-authored souls. Strong hooks: citizenship, forks, m
 5. Combat, social conflict, and non-lethal dueling.
 6. Crafting for charms, firmware, blood rites, and cybernetics.
 7. Player apartments, businesses, covens, packs, courts, and AI shards.
-

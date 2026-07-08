@@ -3,21 +3,34 @@ from __future__ import annotations
 import argparse
 import html
 import json
+import mimetypes
 import os
+from dataclasses import dataclass
 from http import HTTPStatus
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 from uuid import uuid4
 
+from .auth import AuthStore, CharacterSummary, MAX_CHARACTERS_PER_ACCOUNT
 from .engine import GameSession
-from .models import Character
-from .world import ANCESTRIES, AUGMENTS, FACTIONS
+from .world import ANCESTRIES, AUGMENTS, FACTIONS, GEAR
 
 
-SESSION_COOKIE = "nk_session"
-SESSIONS: dict[str, GameSession] = {}
+AUTH_COOKIE = "nk_auth"
+STATIC_ROOT = Path(__file__).resolve().parent.parent / "static"
+WEB_SESSIONS: dict[str, WebSession] = {}
+_STORE: AuthStore | None = None
+
+
+@dataclass
+class WebSession:
+    user_id: int
+    email: str
+    character_id: int | None = None
+    game: GameSession | None = None
 
 
 class NeonKnightsHTTPServer(ThreadingHTTPServer):
@@ -25,7 +38,7 @@ class NeonKnightsHTTPServer(ThreadingHTTPServer):
 
 
 class NeonKnightsHandler(BaseHTTPRequestHandler):
-    server_version = "NeonKnightsWeb/0.1"
+    server_version = "NeonKnightsWeb/0.2"
 
     def do_GET(self) -> None:
         path = urlparse(self.path).path
@@ -36,8 +49,11 @@ class NeonKnightsHandler(BaseHTTPRequestHandler):
             self.send_text("ok")
             return
         if path == "/api/state":
-            session = self.current_session()
-            self.send_json({"hasSession": bool(session), "state": session_state(session) if session else None})
+            web_session = self.current_web_session()
+            self.send_json(account_payload(web_session) if web_session else anonymous_payload())
+            return
+        if path.startswith("/static/"):
+            self.send_static(path.removeprefix("/static/"))
             return
         self.send_error(HTTPStatus.NOT_FOUND)
 
@@ -49,25 +65,50 @@ class NeonKnightsHandler(BaseHTTPRequestHandler):
             self.send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
             return
 
-        if path == "/api/new":
-            try:
-                session_id, output, state = start_session(
+        try:
+            if path == "/api/signup":
+                token, response = signup(str(payload.get("email", "")), str(payload.get("password", "")))
+                self.send_json(response, cookie=token)
+                return
+
+            if path == "/api/login":
+                token, response = login(str(payload.get("email", "")), str(payload.get("password", "")))
+                self.send_json(response, cookie=token)
+                return
+
+            if path == "/api/logout":
+                token = self.current_token()
+                if token:
+                    WEB_SESSIONS.pop(token, None)
+                self.send_json(anonymous_payload(), clear_cookie=True)
+                return
+
+            web_session = self.require_web_session()
+
+            if path == "/api/character":
+                output, response = create_character_for_session(
+                    web_session,
                     str(payload.get("name", "")),
                     str(payload.get("ancestry", "")),
                 )
-            except ValueError as exc:
-                self.send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+                response["output"] = output
+                self.send_json(response)
                 return
-            self.send_json({"output": output, "state": state}, cookie=session_id)
-            return
 
-        if path == "/api/command":
-            session_id = self.current_session_id()
-            if not session_id or session_id not in SESSIONS:
-                self.send_json({"error": "Start a character first."}, status=HTTPStatus.CONFLICT)
+            if path == "/api/select-character":
+                output, response = select_character_for_session(web_session, int(payload.get("characterId", 0)))
+                response["output"] = output
+                self.send_json(response)
                 return
-            output, state = run_command(session_id, str(payload.get("command", "")))
-            self.send_json({"output": output, "state": state})
+
+            if path == "/api/command":
+                output, response = run_command_for_session(web_session, str(payload.get("command", "")))
+                response["output"] = output
+                self.send_json(response)
+                return
+
+        except ValueError as exc:
+            self.send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
             return
 
         self.send_error(HTTPStatus.NOT_FOUND)
@@ -85,19 +126,37 @@ class NeonKnightsHandler(BaseHTTPRequestHandler):
             raise ValueError("Request body must be a JSON object.")
         return data
 
-    def current_session_id(self) -> str | None:
+    def current_token(self) -> str | None:
         cookie_header = self.headers.get("Cookie")
         if not cookie_header:
             return None
         cookie = SimpleCookie(cookie_header)
-        morsel = cookie.get(SESSION_COOKIE)
+        morsel = cookie.get(AUTH_COOKIE)
         return morsel.value if morsel else None
 
-    def current_session(self) -> GameSession | None:
-        session_id = self.current_session_id()
-        if not session_id:
-            return None
-        return SESSIONS.get(session_id)
+    def current_web_session(self) -> WebSession | None:
+        token = self.current_token()
+        return WEB_SESSIONS.get(token) if token else None
+
+    def require_web_session(self) -> WebSession:
+        web_session = self.current_web_session()
+        if web_session is None:
+            raise ValueError("Log in or sign up first.")
+        return web_session
+
+    def send_static(self, relative_path: str) -> None:
+        requested = (STATIC_ROOT / relative_path).resolve()
+        if not str(requested).startswith(str(STATIC_ROOT.resolve())) or not requested.is_file():
+            self.send_error(HTTPStatus.NOT_FOUND)
+            return
+
+        content_type = mimetypes.guess_type(requested.name)[0] or "application/octet-stream"
+        data = requested.read_bytes()
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
 
     def send_html(self, body: str, status: HTTPStatus = HTTPStatus.OK) -> None:
         self.send_response(status)
@@ -116,11 +175,14 @@ class NeonKnightsHandler(BaseHTTPRequestHandler):
         payload: dict[str, Any],
         status: HTTPStatus = HTTPStatus.OK,
         cookie: str | None = None,
+        clear_cookie: bool = False,
     ) -> None:
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         if cookie:
-            self.send_header("Set-Cookie", f"{SESSION_COOKIE}={cookie}; Path=/; SameSite=Lax")
+            self.send_header("Set-Cookie", f"{AUTH_COOKIE}={cookie}; Path=/; HttpOnly; SameSite=Lax")
+        if clear_cookie:
+            self.send_header("Set-Cookie", f"{AUTH_COOKIE}=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax")
         self.end_headers()
         self.wfile.write(json.dumps(payload).encode("utf-8"))
 
@@ -130,47 +192,129 @@ class NeonKnightsHandler(BaseHTTPRequestHandler):
         super().log_message(fmt, *args)
 
 
-def start_session(name: str, ancestry_key: str, sessions: dict[str, GameSession] = SESSIONS) -> tuple[str, str, dict[str, Any]]:
-    name = " ".join(name.strip().split())
-    ancestry_key = ancestry_key.strip().lower()
-
-    if not name:
-        raise ValueError("Handle is required.")
-    if len(name) > 32:
-        raise ValueError("Handle must be 32 characters or fewer.")
-    if ancestry_key not in ANCESTRIES:
-        raise ValueError("Choose a listed ancestry.")
-
-    session_id = uuid4().hex
-    session = GameSession(Character(name=name, ancestry=ancestry_key))
-    sessions[session_id] = session
-    return session_id, session.intro(), session_state(session)
+def get_store() -> AuthStore:
+    global _STORE
+    if _STORE is None:
+        _STORE = AuthStore()
+    return _STORE
 
 
-def run_command(
-    session_id: str,
+def signup(email: str, password: str, store: AuthStore | None = None) -> tuple[str, dict[str, Any]]:
+    store = store or get_store()
+    user = store.create_user(email, password)
+    token = uuid4().hex
+    WEB_SESSIONS[token] = WebSession(user_id=user.id, email=user.email)
+    return token, account_payload(WEB_SESSIONS[token], store)
+
+
+def login(email: str, password: str, store: AuthStore | None = None) -> tuple[str, dict[str, Any]]:
+    store = store or get_store()
+    user = store.verify_user(email, password)
+    token = uuid4().hex
+    WEB_SESSIONS[token] = WebSession(user_id=user.id, email=user.email)
+    return token, account_payload(WEB_SESSIONS[token], store)
+
+
+def create_character_for_session(
+    web_session: WebSession,
+    name: str,
+    ancestry: str,
+    store: AuthStore | None = None,
+) -> tuple[str, dict[str, Any]]:
+    store = store or get_store()
+    character_id, character = store.create_character(web_session.user_id, name, ancestry)
+    game = GameSession(character)
+    output = game.intro()
+    web_session.character_id = character_id
+    web_session.game = game
+    store.save_character(web_session.user_id, character_id, game.character)
+    return output, account_payload(web_session, store)
+
+
+def select_character_for_session(
+    web_session: WebSession,
+    character_id: int,
+    store: AuthStore | None = None,
+) -> tuple[str, dict[str, Any]]:
+    store = store or get_store()
+    character = store.load_character(web_session.user_id, character_id)
+    web_session.character_id = character_id
+    web_session.game = GameSession(character)
+    return f"Reconnected to {character.name}.\n\n{web_session.game.look()}", account_payload(web_session, store)
+
+
+def run_command_for_session(
+    web_session: WebSession,
     command: str,
-    sessions: dict[str, GameSession] = SESSIONS,
-) -> tuple[str, dict[str, Any] | None]:
-    session = sessions[session_id]
-    output = session.handle(command)
-    if not session.running:
-        sessions.pop(session_id, None)
-        return output, None
-    return output, session_state(session)
+    store: AuthStore | None = None,
+) -> tuple[str, dict[str, Any]]:
+    store = store or get_store()
+    if web_session.game is None or web_session.character_id is None:
+        raise ValueError("Select or create a character first.")
+
+    output = web_session.game.handle(command)
+    store.save_character(web_session.user_id, web_session.character_id, web_session.game.character)
+    if not web_session.game.running:
+        web_session.character_id = None
+        web_session.game = None
+    return output, account_payload(web_session, store)
 
 
-def session_state(session: GameSession) -> dict[str, Any]:
+def anonymous_payload() -> dict[str, Any]:
+    return {
+        "authenticated": False,
+        "user": None,
+        "characters": [],
+        "maxCharacters": MAX_CHARACTERS_PER_ACCOUNT,
+        "state": None,
+    }
+
+
+def account_payload(web_session: WebSession, store: AuthStore | None = None) -> dict[str, Any]:
+    store = store or get_store()
+    return {
+        "authenticated": True,
+        "user": {"email": web_session.email},
+        "characters": [summary_to_dict(summary) for summary in store.list_characters(web_session.user_id)],
+        "maxCharacters": MAX_CHARACTERS_PER_ACCOUNT,
+        "currentCharacterId": web_session.character_id,
+        "state": session_state(web_session.game, web_session.character_id) if web_session.game else None,
+    }
+
+
+def summary_to_dict(summary: CharacterSummary) -> dict[str, Any]:
+    ancestry = ANCESTRIES.get(summary.ancestry)
+    return {
+        "id": summary.id,
+        "slot": summary.slot,
+        "name": summary.name,
+        "ancestry": ancestry.name if ancestry else summary.ancestry,
+        "location": summary.location,
+    }
+
+
+def session_state(session: GameSession | None, character_id: int | None = None) -> dict[str, Any] | None:
+    if session is None:
+        return None
     character = session.character
     ancestry = ANCESTRIES[character.ancestry]
     faction = FACTIONS[character.faction].name if character.faction else "Unaffiliated"
     return {
+        "characterId": character_id,
         "name": character.name,
         "ancestry": ancestry.name,
         "faction": faction,
         "credits": character.credits,
         "essence": character.essence,
+        "hp": character.hp,
+        "maxHp": character.max_hp,
         "augments": [AUGMENTS[key].name for key in sorted(character.augments)],
+        "inventory": [GEAR[key].name for key in sorted(character.inventory) if key in GEAR],
+        "equipment": {
+            slot: GEAR[key].name
+            for slot, key in sorted(character.equipment.items())
+            if key in GEAR
+        },
         "location": session.room.name,
         "roomKey": session.room.key,
     }
@@ -181,121 +325,138 @@ def render_index() -> str:
         f'<option value="{html.escape(key)}">{html.escape(ancestry.name)}</option>'
         for key, ancestry in ANCESTRIES.items()
     )
-    return f"""<!doctype html>
+    return INDEX_HTML.replace("__ANCESTRY_OPTIONS__", ancestry_options)
+
+
+INDEX_HTML = r"""<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Neon Knights MUD</title>
+  <title>Neon Knights</title>
   <style>
-    :root {{
-      --ink: #f2f6ed;
-      --muted: #9eaaa3;
-      --line: rgba(242, 246, 237, 0.18);
+    :root {
+      --ink: #f4f7ef;
+      --muted: #a7b1ab;
+      --line: rgba(244, 247, 239, 0.18);
       --red: #ff3f5f;
-      --cyan: #18d9e6;
+      --cyan: #19d7ef;
       --green: #7dff7a;
       --gold: #ffd166;
       --violet: #c47dff;
-      --panel: rgba(10, 13, 15, 0.88);
-      --paper: #121617;
-    }}
+      --panel: rgba(8, 11, 13, 0.9);
+      --paper: rgba(16, 22, 22, 0.96);
+    }
 
-    * {{
+    * {
       box-sizing: border-box;
-    }}
+    }
 
-    body {{
+    body {
       margin: 0;
       min-height: 100vh;
       color: var(--ink);
       background:
-        radial-gradient(circle at 12% 18%, rgba(255, 63, 95, 0.20), transparent 22rem),
-        radial-gradient(circle at 82% 8%, rgba(24, 217, 230, 0.16), transparent 18rem),
-        linear-gradient(160deg, #080909 0%, #15120f 44%, #071315 100%);
+        linear-gradient(180deg, rgba(3, 5, 8, 0.48), rgba(3, 5, 8, 0.88)),
+        radial-gradient(circle at 12% 18%, rgba(255, 63, 95, 0.24), transparent 22rem),
+        radial-gradient(circle at 82% 8%, rgba(24, 217, 230, 0.18), transparent 18rem),
+        url("/static/images/neon-gothic-city.png") center / cover fixed no-repeat,
+        #070b0d;
       font-family: Consolas, "Courier New", monospace;
-    }}
+    }
 
-    .chrome {{
+    .chrome {
       display: grid;
-      grid-template-columns: minmax(15rem, 0.85fr) minmax(0, 2fr) minmax(15rem, 0.75fr);
+      grid-template-columns: minmax(16rem, 0.85fr) minmax(0, 2fr) minmax(16rem, 0.8fr);
       gap: 1rem;
       min-height: 100vh;
       padding: clamp(0.75rem, 2vw, 1.5rem);
-    }}
+      backdrop-filter: saturate(1.1);
+    }
 
-    .panel {{
+    .panel {
       border: 1px solid var(--line);
       border-radius: 8px;
       background: var(--panel);
-      box-shadow: 0 1rem 3rem rgba(0, 0, 0, 0.32);
+      box-shadow: 0 1rem 3rem rgba(0, 0, 0, 0.38);
       overflow: hidden;
       min-height: 0;
-    }}
+    }
 
-    .mast {{
+    .mast {
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 1rem;
       padding: 1rem;
       border-bottom: 1px solid var(--line);
-      background: rgba(255, 255, 255, 0.035);
-    }}
+      background: rgba(255, 255, 255, 0.04);
+    }
 
-    h1, h2 {{
+    h1, h2 {
       margin: 0;
       line-height: 1.05;
       letter-spacing: 0;
-    }}
+    }
 
-    h1 {{
-      font-size: clamp(1.35rem, 2rem, 2rem);
-    }}
+    h1 {
+      font-size: 2rem;
+    }
 
-    h2 {{
+    h2 {
       font-size: 0.9rem;
       color: var(--muted);
       text-transform: uppercase;
-    }}
+    }
 
-    .pulse {{
+    .pulse {
       width: 0.8rem;
       height: 0.8rem;
       border-radius: 50%;
       background: var(--green);
       box-shadow: 0 0 1rem var(--green);
-    }}
+    }
 
-    .side {{
+    .side {
       display: grid;
-      grid-template-rows: auto 1fr;
+      grid-template-rows: auto auto 1fr;
       min-height: 0;
-    }}
+    }
 
-    .map {{
+    .map {
       position: relative;
-      min-height: 20rem;
+      min-height: 17rem;
       padding: 1rem;
       background:
         linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px),
         linear-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px);
       background-size: 2rem 2rem;
-    }}
+    }
 
-    .rail {{
+    .ascii {
+      padding: 0.9rem 1rem;
+      color: var(--cyan);
+      white-space: pre;
+      overflow: auto;
+      border-bottom: 1px solid var(--line);
+      background: rgba(0, 0, 0, 0.24);
+      font-size: 0.78rem;
+      line-height: 1.1;
+    }
+
+    .rail {
       position: absolute;
       background: var(--line);
       transform-origin: left center;
       height: 2px;
-    }}
+    }
 
-    .r1 {{ left: 28%; top: 26%; width: 39%; transform: rotate(18deg); }}
-    .r2 {{ left: 33%; top: 44%; width: 38%; transform: rotate(-12deg); }}
-    .r3 {{ left: 30%; top: 62%; width: 42%; transform: rotate(16deg); }}
-    .r4 {{ left: 49%; top: 25%; width: 2px; height: 45%; transform: none; }}
+    .r1 { left: 28%; top: 26%; width: 39%; transform: rotate(18deg); }
+    .r2 { left: 33%; top: 44%; width: 38%; transform: rotate(-12deg); }
+    .r3 { left: 30%; top: 62%; width: 42%; transform: rotate(16deg); }
+    .r4 { left: 49%; top: 25%; width: 2px; height: 45%; transform: none; }
 
-    .node {{
+    .node {
       position: absolute;
       display: grid;
       place-items: center;
@@ -307,148 +468,179 @@ def render_index() -> str:
       background: rgba(0, 0, 0, 0.78);
       box-shadow: 0 0 1rem currentColor;
       font-weight: 700;
-    }}
+    }
 
-    .node.red {{ color: var(--red); }}
-    .node.green {{ color: var(--green); }}
-    .node.gold {{ color: var(--gold); }}
-    .node.violet {{ color: var(--violet); }}
-    .node.station {{ left: 42%; top: 40%; }}
-    .node.blood {{ left: 15%; top: 20%; }}
-    .node.pack {{ left: 18%; top: 64%; }}
-    .node.hex {{ right: 14%; top: 18%; }}
-    .node.synth {{ right: 16%; bottom: 20%; }}
+    .node.red { color: var(--red); }
+    .node.green { color: var(--green); }
+    .node.gold { color: var(--gold); }
+    .node.violet { color: var(--violet); }
+    .node.station { left: 42%; top: 40%; }
+    .node.blood { left: 15%; top: 20%; }
+    .node.pack { left: 18%; top: 64%; }
+    .node.hex { right: 14%; top: 18%; }
+    .node.synth { right: 16%; bottom: 20%; }
 
-    .terminal {{
+    .terminal {
       display: grid;
-      grid-template-rows: auto minmax(0, 1fr) auto auto;
+      grid-template-rows: auto minmax(0, 1fr) auto auto auto;
       min-height: 0;
-    }}
+    }
 
-    .log {{
+    .log {
       min-height: 0;
       padding: 1rem;
       overflow: auto;
       white-space: pre-wrap;
       line-height: 1.45;
-      background: rgba(0, 0, 0, 0.38);
-    }}
+      background: rgba(0, 0, 0, 0.46);
+    }
 
-    .line {{
+    .line {
       margin-bottom: 1rem;
-    }}
+    }
 
-    .line.input {{
+    .line.input {
       color: var(--cyan);
-    }}
+    }
 
-    .line.system {{
+    .line.system {
       color: var(--gold);
-    }}
+    }
 
-    .composer, .roll {{
+    .auth-grid {
       display: grid;
-      grid-template-columns: 1fr auto;
-      gap: 0.5rem;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.75rem;
       padding: 0.85rem;
       border-top: 1px solid var(--line);
-    }}
+    }
 
-    input, select, button {{
+    .auth-form, .composer, .roll {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 0.5rem;
+    }
+
+    .composer, .roll {
+      grid-template-columns: 1fr auto;
+      padding: 0.85rem;
+      border-top: 1px solid var(--line);
+    }
+
+    .roll {
+      grid-template-columns: minmax(0, 1fr) minmax(8rem, 13rem) auto;
+    }
+
+    input, select, button {
       min-width: 0;
       border: 1px solid var(--line);
       border-radius: 6px;
       color: var(--ink);
       background: var(--paper);
       font: inherit;
-    }}
+    }
 
-    input, select {{
+    input, select {
       width: 100%;
       padding: 0.78rem 0.85rem;
-    }}
+    }
 
-    button {{
+    button {
       padding: 0.78rem 0.95rem;
       cursor: pointer;
-      background: #1b2220;
-    }}
+      background: rgba(27, 34, 32, 0.96);
+    }
 
-    button:hover, button:focus-visible {{
+    button:hover, button:focus-visible {
       border-color: var(--cyan);
       color: white;
-    }}
+    }
 
-    .quick {{
+    .quick {
       display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-template-columns: repeat(4, minmax(0, 1fr));
       gap: 0.45rem;
       padding: 0 0.85rem 0.85rem;
       border-top: 1px solid var(--line);
-    }}
+    }
 
-    .quick button {{
-      padding: 0.6rem 0.4rem;
+    .quick button {
+      padding: 0.6rem 0.35rem;
       color: var(--muted);
-    }}
+    }
 
-    .sheet {{
+    .sheet {
       padding: 1rem;
       display: grid;
       gap: 0.85rem;
-    }}
+      overflow: auto;
+    }
 
-    .stat {{
+    .stat {
       display: grid;
       gap: 0.2rem;
       padding-bottom: 0.65rem;
       border-bottom: 1px solid var(--line);
-    }}
+    }
 
-    .label {{
+    .label {
       color: var(--muted);
       font-size: 0.72rem;
       text-transform: uppercase;
-    }}
+    }
 
-    .value {{
+    .value {
       overflow-wrap: anywhere;
-    }}
+    }
 
-    .hidden {{
+    .characters {
+      display: grid;
+      gap: 0.45rem;
+    }
+
+    .character-button {
+      text-align: left;
+      color: var(--ink);
+    }
+
+    .hidden {
       display: none;
-    }}
+    }
 
-    @media (max-width: 980px) {{
-      .chrome {{
+    @media (max-width: 980px) {
+      .chrome {
         grid-template-columns: 1fr;
-      }}
+      }
 
-      .map {{
+      .map {
         min-height: 15rem;
-      }}
-    }}
+      }
+    }
 
-    @media (min-width: 981px) {{
-      .chrome {{
+    @media (min-width: 981px) {
+      .chrome {
         height: 100vh;
         overflow: hidden;
-      }}
-    }}
+      }
+    }
 
-    @media (max-width: 560px) {{
-      .chrome {{
+    @media (max-width: 620px) {
+      .chrome {
         padding: 0.5rem;
-      }}
+      }
 
-      .mast, .composer, .roll {{
+      h1 {
+        font-size: 1.65rem;
+      }
+
+      .auth-grid, .composer, .roll {
         grid-template-columns: 1fr;
-      }}
+      }
 
-      .quick {{
+      .quick {
         grid-template-columns: repeat(2, minmax(0, 1fr));
-      }}
-    }}
+      }
+    }
   </style>
 </head>
 <body>
@@ -458,6 +650,10 @@ def render_index() -> str:
         <h2>Redline Grid</h2>
         <span class="pulse" aria-hidden="true"></span>
       </div>
+      <pre class="ascii">       /\  NEON KNIGHTS  /\
+  ____/  \____      ____/  \____
+ |  red glass |____| chrome rain |
+ |__cathedral_|    |__moon grid__|</pre>
       <div class="map" aria-hidden="true">
         <span class="rail r1"></span>
         <span class="rail r2"></span>
@@ -482,12 +678,25 @@ def render_index() -> str:
 
       <div id="log" class="log" aria-live="polite"></div>
 
-      <form id="createForm" class="roll">
+      <div id="authPanel" class="auth-grid">
+        <form id="loginForm" class="auth-form">
+          <input id="loginEmail" type="email" placeholder="Email" autocomplete="email" required>
+          <input id="loginPassword" type="password" placeholder="Password" autocomplete="current-password" required>
+          <button type="submit">Log In</button>
+        </form>
+        <form id="signupForm" class="auth-form">
+          <input id="signupEmail" type="email" placeholder="Email" autocomplete="email" required>
+          <input id="signupPassword" type="password" placeholder="Password" autocomplete="new-password" required>
+          <button type="submit">Sign Up</button>
+        </form>
+      </div>
+
+      <form id="createForm" class="roll hidden">
         <input id="handle" name="handle" maxlength="32" placeholder="Handle" autocomplete="off" required>
         <select id="ancestry" name="ancestry" aria-label="Ancestry">
-          {ancestry_options}
+          __ANCESTRY_OPTIONS__
         </select>
-        <button type="submit">Enter</button>
+        <button type="submit">Create</button>
       </form>
 
       <form id="commandForm" class="composer hidden">
@@ -498,23 +707,32 @@ def render_index() -> str:
       <div id="quickCommands" class="quick hidden">
         <button data-command="look">look</button>
         <button data-command="scan">scan</button>
+        <button data-command="shop">shop</button>
+        <button data-command="inventory">inventory</button>
+        <button data-command="gear">gear</button>
         <button data-command="north">north</button>
-        <button data-command="east">east</button>
-        <button data-command="west">west</button>
-        <button data-command="whoami">whoami</button>
+        <button data-command="attack">attack</button>
+        <button data-command="tutorial">tutorial</button>
       </div>
     </section>
 
     <aside class="panel" aria-label="Character sheet">
       <div class="mast">
         <h2>Body Ledger</h2>
+        <button id="logoutButton" class="hidden" type="button">Log Out</button>
       </div>
       <div class="sheet">
+        <div class="stat"><span class="label">Email</span><span id="sheetEmail" class="value">-</span></div>
+        <div class="stat"><span class="label">Slots</span><span id="sheetSlots" class="value">0/2</span></div>
+        <div id="characterList" class="characters hidden"></div>
         <div class="stat"><span class="label">Handle</span><span id="sheetName" class="value">-</span></div>
         <div class="stat"><span class="label">Ancestry</span><span id="sheetAncestry" class="value">-</span></div>
         <div class="stat"><span class="label">Faction</span><span id="sheetFaction" class="value">-</span></div>
+        <div class="stat"><span class="label">Health</span><span id="sheetHealth" class="value">-</span></div>
         <div class="stat"><span class="label">Credits</span><span id="sheetCredits" class="value">-</span></div>
         <div class="stat"><span class="label">Essence</span><span id="sheetEssence" class="value">-</span></div>
+        <div class="stat"><span class="label">Gear</span><span id="sheetGear" class="value">-</span></div>
+        <div class="stat"><span class="label">Inventory</span><span id="sheetInventory" class="value">-</span></div>
         <div class="stat"><span class="label">Augments</span><span id="sheetAugments" class="value">-</span></div>
       </div>
     </aside>
@@ -522,118 +740,217 @@ def render_index() -> str:
 
   <script>
     const log = document.querySelector("#log");
+    const authPanel = document.querySelector("#authPanel");
+    const loginForm = document.querySelector("#loginForm");
+    const signupForm = document.querySelector("#signupForm");
     const createForm = document.querySelector("#createForm");
     const commandForm = document.querySelector("#commandForm");
     const commandInput = document.querySelector("#command");
     const quickCommands = document.querySelector("#quickCommands");
+    const characterList = document.querySelector("#characterList");
+    const logoutButton = document.querySelector("#logoutButton");
 
-    const sheet = {{
+    const sheet = {
       location: document.querySelector("#location"),
+      email: document.querySelector("#sheetEmail"),
+      slots: document.querySelector("#sheetSlots"),
       name: document.querySelector("#sheetName"),
       ancestry: document.querySelector("#sheetAncestry"),
       faction: document.querySelector("#sheetFaction"),
+      health: document.querySelector("#sheetHealth"),
       credits: document.querySelector("#sheetCredits"),
       essence: document.querySelector("#sheetEssence"),
+      gear: document.querySelector("#sheetGear"),
+      inventory: document.querySelector("#sheetInventory"),
       augments: document.querySelector("#sheetAugments")
-    }};
+    };
 
-    function append(text, kind = "") {{
+    function append(text, kind = "") {
       const line = document.createElement("div");
-      line.className = `line ${{kind}}`;
+      line.className = `line ${kind}`;
       line.textContent = text;
       log.appendChild(line);
       log.scrollTop = log.scrollHeight;
-    }}
+    }
 
-    function setActive(active) {{
-      createForm.classList.toggle("hidden", active);
+    function setMode(account) {
+      const authed = Boolean(account?.authenticated);
+      const active = Boolean(account?.state);
+      const slotsUsed = account?.characters?.length || 0;
+      const maxSlots = account?.maxCharacters || 2;
+
+      authPanel.classList.toggle("hidden", authed);
+      logoutButton.classList.toggle("hidden", !authed);
+      createForm.classList.toggle("hidden", !authed || active || slotsUsed >= maxSlots);
       commandForm.classList.toggle("hidden", !active);
       quickCommands.classList.toggle("hidden", !active);
-      if (active) {{
-        commandInput.focus();
-      }}
-    }}
+      characterList.classList.toggle("hidden", !authed || active || slotsUsed === 0);
 
-    function renderState(state) {{
-      if (!state) {{
+      if (active) {
+        commandInput.focus();
+      }
+    }
+
+    function renderCharacters(account) {
+      characterList.textContent = "";
+      if (!account?.characters?.length || account.state) return;
+
+      for (const character of account.characters) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "character-button";
+        button.dataset.characterId = character.id;
+        button.textContent = `${character.slot}. ${character.name} / ${character.ancestry} / ${character.location}`;
+        characterList.appendChild(button);
+      }
+    }
+
+    function renderAccount(account) {
+      sheet.email.textContent = account?.user?.email || "-";
+      sheet.slots.textContent = `${account?.characters?.length || 0}/${account?.maxCharacters || 2}`;
+      renderCharacters(account);
+      renderState(account?.state || null);
+      setMode(account);
+    }
+
+    function renderState(state) {
+      if (!state) {
         sheet.location.textContent = "No active body";
         sheet.name.textContent = "-";
         sheet.ancestry.textContent = "-";
         sheet.faction.textContent = "-";
+        sheet.health.textContent = "-";
         sheet.credits.textContent = "-";
         sheet.essence.textContent = "-";
+        sheet.gear.textContent = "-";
+        sheet.inventory.textContent = "-";
         sheet.augments.textContent = "-";
-        setActive(false);
         return;
-      }}
+      }
       sheet.location.textContent = state.location;
       sheet.name.textContent = state.name;
       sheet.ancestry.textContent = state.ancestry;
       sheet.faction.textContent = state.faction;
+      sheet.health.textContent = `${state.hp}/${state.maxHp}`;
       sheet.credits.textContent = state.credits;
       sheet.essence.textContent = state.essence;
+      sheet.gear.textContent = Object.entries(state.equipment).map(([slot, item]) => `${slot}: ${item}`).join(", ") || "None";
+      sheet.inventory.textContent = state.inventory.length ? state.inventory.join(", ") : "None";
       sheet.augments.textContent = state.augments.length ? state.augments.join(", ") : "None";
-      setActive(true);
-    }}
+    }
 
-    async function postJson(url, payload) {{
-      const response = await fetch(url, {{
+    async function postJson(url, payload = {}) {
+      const response = await fetch(url, {
         method: "POST",
-        headers: {{ "Content-Type": "application/json" }},
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
-      }});
+      });
       const data = await response.json();
-      if (!response.ok) {{
+      if (!response.ok) {
         throw new Error(data.error || "Request failed.");
-      }}
+      }
       return data;
-    }}
+    }
 
-    createForm.addEventListener("submit", async (event) => {{
+    loginForm.addEventListener("submit", async (event) => {
       event.preventDefault();
-      try {{
-        const data = await postJson("/api/new", {{
+      try {
+        const data = await postJson("/api/login", {
+          email: document.querySelector("#loginEmail").value,
+          password: document.querySelector("#loginPassword").value
+        });
+        log.textContent = "";
+        append("Account linked. Select a body or create one.", "system");
+        renderAccount(data);
+      } catch (error) {
+        append(error.message, "system");
+      }
+    });
+
+    signupForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      try {
+        const data = await postJson("/api/signup", {
+          email: document.querySelector("#signupEmail").value,
+          password: document.querySelector("#signupPassword").value
+        });
+        log.textContent = "";
+        append("Account created. Two character slots are available.", "system");
+        renderAccount(data);
+      } catch (error) {
+        append(error.message, "system");
+      }
+    });
+
+    createForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      try {
+        const data = await postJson("/api/character", {
           name: document.querySelector("#handle").value,
           ancestry: document.querySelector("#ancestry").value
-        }});
+        });
         log.textContent = "";
         append(data.output, "system");
-        renderState(data.state);
-      }} catch (error) {{
+        renderAccount(data);
+      } catch (error) {
         append(error.message, "system");
-      }}
-    }});
+      }
+    });
 
-    commandForm.addEventListener("submit", async (event) => {{
+    characterList.addEventListener("click", async (event) => {
+      const button = event.target.closest("button[data-character-id]");
+      if (!button) return;
+      try {
+        const data = await postJson("/api/select-character", {
+          characterId: Number(button.dataset.characterId)
+        });
+        log.textContent = "";
+        append(data.output, "system");
+        renderAccount(data);
+      } catch (error) {
+        append(error.message, "system");
+      }
+    });
+
+    commandForm.addEventListener("submit", async (event) => {
       event.preventDefault();
       const command = commandInput.value.trim();
       if (!command) return;
       commandInput.value = "";
-      append(`> ${{command}}`, "input");
-      try {{
-        const data = await postJson("/api/command", {{ command }});
+      append(`> ${command}`, "input");
+      try {
+        const data = await postJson("/api/command", { command });
         append(data.output);
-        renderState(data.state);
-      }} catch (error) {{
+        renderAccount(data);
+      } catch (error) {
         append(error.message, "system");
-      }}
-    }});
+      }
+    });
 
-    quickCommands.addEventListener("click", (event) => {{
+    quickCommands.addEventListener("click", (event) => {
       const button = event.target.closest("button[data-command]");
       if (!button) return;
       commandInput.value = button.dataset.command;
       commandForm.requestSubmit();
-    }});
+    });
+
+    logoutButton.addEventListener("click", async () => {
+      const data = await postJson("/api/logout");
+      log.textContent = "";
+      append("Logged out.", "system");
+      renderAccount(data);
+    });
 
     fetch("/api/state")
       .then((response) => response.json())
-      .then((data) => {{
-        renderState(data.state);
-        if (data.hasSession) {{
+      .then((data) => {
+        renderAccount(data);
+        if (data.authenticated && data.state) {
           append("Session restored. Type look.", "system");
-        }}
-      }})
+        } else if (data.authenticated) {
+          append("Account restored. Select a body or create one.", "system");
+        }
+      })
       .catch(() => append("Signal lost.", "system"));
   </script>
 </body>
@@ -642,7 +959,7 @@ def render_index() -> str:
 
 def serve(host: str, port: int) -> None:
     server = NeonKnightsHTTPServer((host, port), NeonKnightsHandler)
-    print(f"Neon Knights browser MUD listening on http://{host}:{port}")
+    print(f"Neon Knights browser RPG listening on http://{host}:{port}")
     server.serve_forever()
 
 
