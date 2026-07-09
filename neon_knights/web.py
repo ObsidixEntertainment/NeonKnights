@@ -44,7 +44,7 @@ class NeonKnightsHTTPServer(ThreadingHTTPServer):
 
 
 class NeonKnightsHandler(BaseHTTPRequestHandler):
-    server_version = "NeonKnightsWeb/0.2"
+    server_version = "NeonKnightsWeb/0.3"
 
     def do_GET(self) -> None:
         path = urlparse(self.path).path
