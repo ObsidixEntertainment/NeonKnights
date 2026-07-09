@@ -57,6 +57,7 @@ admin codes
 admin codes player@example.com
 admin grant player@example.com
 admin verify player@example.com
+admin reset-users CONFIRM
 admin me
 ```
 

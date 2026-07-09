@@ -39,12 +39,18 @@ class WebSession:
     game: GameSession | None = None
 
 
+@dataclass(frozen=True)
+class AdminCommandResult:
+    output: str
+    clear_sessions: bool = False
+
+
 class NeonKnightsHTTPServer(ThreadingHTTPServer):
     daemon_threads = True
 
 
 class NeonKnightsHandler(BaseHTTPRequestHandler):
-    server_version = "NeonKnightsWeb/0.4"
+    server_version = "NeonKnightsWeb/0.5"
 
     def do_GET(self) -> None:
         path = urlparse(self.path).path
@@ -391,9 +397,12 @@ def run_command_for_session(
     store: AuthStore | None = None,
 ) -> tuple[str, dict[str, Any]]:
     store = store or get_store()
-    admin_output = maybe_handle_admin_command(web_session, command, store)
-    if admin_output is not None:
-        return admin_output, account_payload(web_session, store)
+    admin_result = maybe_handle_admin_command(web_session, command, store)
+    if admin_result is not None:
+        if admin_result.clear_sessions:
+            WEB_SESSIONS.clear()
+            return admin_result.output, anonymous_payload()
+        return admin_result.output, account_payload(web_session, store)
 
     if web_session.game is None or web_session.character_id is None:
         raise ValueError("Select or create a character first.")
@@ -443,14 +452,14 @@ def enforce_verified_email(web_session: WebSession, store: AuthStore) -> None:
         raise ValueError("Verify your email before entering the city.")
 
 
-def maybe_handle_admin_command(web_session: WebSession, command: str, store: AuthStore) -> str | None:
+def maybe_handle_admin_command(web_session: WebSession, command: str, store: AuthStore) -> AdminCommandResult | None:
     command = " ".join(command.strip().split())
     if not command.lower().startswith("admin"):
         return None
 
     user = refresh_web_session_user(web_session, store)
     if not user.is_admin:
-        return "Admin channel denied."
+        return AdminCommandResult("Admin channel denied.")
 
     _, _, rest = command.partition(" ")
     verb, _, target = rest.strip().partition(" ")
@@ -458,18 +467,21 @@ def maybe_handle_admin_command(web_session: WebSession, command: str, store: Aut
     target = target.strip()
 
     if not verb or verb == "help":
-        return "\n".join(
-            [
-                "Admin commands:",
-                "  admin users          List accounts and roles.",
-                "  admin codes [email]  Show recent verification/reset codes.",
-                "  admin grant <email>  Promote an existing account to admin.",
-                "  admin verify <email> Mark an account email as verified.",
-                "  admin me             Show your admin account.",
-            ]
+        return AdminCommandResult(
+            "\n".join(
+                [
+                    "Admin commands:",
+                    "  admin users                List accounts and roles.",
+                    "  admin codes [email]        Show recent verification/reset codes.",
+                    "  admin grant <email>        Promote an existing account to admin.",
+                    "  admin verify <email>       Mark an account email as verified.",
+                    "  admin reset-users CONFIRM  Reset all users, characters, and codes.",
+                    "  admin me                   Show your admin account.",
+                ]
+            )
         )
     if verb == "me":
-        return f"Admin: {user.email} | verified={user.email_verified}"
+        return AdminCommandResult(f"Admin: {user.email} | verified={user.email_verified}")
     if verb == "users":
         lines = ["Accounts:"]
         for listed in store.list_users():
@@ -477,31 +489,41 @@ def maybe_handle_admin_command(web_session: WebSession, command: str, store: Aut
             verified = "verified" if listed.email_verified else "unverified"
             character_count = len(store.list_characters(listed.id))
             lines.append(f"- {listed.email} | {role} | {verified} | characters={character_count}")
-        return "\n".join(lines)
+        return AdminCommandResult("\n".join(lines))
     if verb in {"codes", "mail"}:
-        return admin_codes(store, target or None)
+        return AdminCommandResult(admin_codes(store, target or None))
     if verb == "grant":
         if not target:
-            return "Usage: admin grant <email>"
+            return AdminCommandResult("Usage: admin grant <email>")
         target_user = store.get_user_by_email(target)
         if target_user is None:
-            return f"No account exists for {target}."
+            return AdminCommandResult(f"No account exists for {target}.")
         promoted = store.promote_admin(target_user.id)
         delivery = safe_send_mail(
             promoted.email,
             "Neon Knights admin access granted",
             admin_grant_body(promoted),
         )
-        return f"Granted admin to {promoted.email}. {delivery.detail}"
+        return AdminCommandResult(f"Granted admin to {promoted.email}. {delivery.detail}")
     if verb == "verify":
         if not target:
-            return "Usage: admin verify <email>"
+            return AdminCommandResult("Usage: admin verify <email>")
         target_user = store.get_user_by_email(target)
         if target_user is None:
-            return f"No account exists for {target}."
+            return AdminCommandResult(f"No account exists for {target}.")
         verified = store.set_email_verified(target_user.id)
-        return f"Verified email for {verified.email}."
-    return f"Unknown admin command: {verb}. Try 'admin help'."
+        return AdminCommandResult(f"Verified email for {verified.email}.")
+    if verb == "reset-users":
+        if target.upper() != "CONFIRM":
+            return AdminCommandResult("Usage: admin reset-users CONFIRM")
+        summary = store.reset_all_accounts()
+        return AdminCommandResult(
+            "All users, characters, and email codes were reset. "
+            "Bootstrap is open again. "
+            f"Removed users={summary.users}, characters={summary.characters}, email_codes={summary.email_codes}.",
+            clear_sessions=True,
+        )
+    return AdminCommandResult(f"Unknown admin command: {verb}. Try 'admin help'.")
 
 
 def admin_codes(store: AuthStore, email: str | None = None) -> str:

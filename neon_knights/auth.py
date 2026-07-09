@@ -50,6 +50,13 @@ class EmailCodeSummary:
     used_at: int | None
 
 
+@dataclass(frozen=True)
+class ResetSummary:
+    users: int
+    characters: int
+    email_codes: int
+
+
 class AuthStore:
     def __init__(self, db_path: str | Path | None = None):
         self.db_path = Path(db_path or os.environ.get("NEON_KNIGHTS_DB", "neon_knights.sqlite3"))
@@ -267,6 +274,17 @@ class AuthStore:
             )
             for row in rows
         ]
+
+    def reset_all_accounts(self) -> ResetSummary:
+        with self.connect() as db:
+            users = int(db.execute("SELECT COUNT(*) AS count FROM users").fetchone()["count"])
+            characters = int(db.execute("SELECT COUNT(*) AS count FROM characters").fetchone()["count"])
+            email_codes = int(db.execute("SELECT COUNT(*) AS count FROM email_codes").fetchone()["count"])
+            db.execute("DELETE FROM email_codes")
+            db.execute("DELETE FROM characters")
+            db.execute("DELETE FROM users")
+            db.execute("DELETE FROM sqlite_sequence WHERE name IN ('users', 'characters', 'email_codes')")
+        return ResetSummary(users=users, characters=characters, email_codes=email_codes)
 
 
     def list_characters(self, user_id: int) -> list[CharacterSummary]:

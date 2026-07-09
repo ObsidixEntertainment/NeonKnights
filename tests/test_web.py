@@ -165,6 +165,40 @@ class WebSessionTests(unittest.TestCase):
         self.assertIn("password-reset", output)
         self.assertIn(code, output)
 
+    def test_admin_reset_users_requires_confirmation(self) -> None:
+        admin_token, _ = admin_bootstrap("admin@example.com", "neonpass", "test-admin-key", self.store)
+        admin_session = WEB_SESSIONS[admin_token]
+        signup("runner@example.com", "neonpass", self.store)
+
+        output, account = run_command_for_session(admin_session, "admin reset-users", self.store)
+
+        self.assertIn("Usage: admin reset-users CONFIRM", output)
+        self.assertTrue(account["authenticated"])
+        self.assertEqual(len(self.store.list_users()), 2)
+        self.assertIn(admin_token, WEB_SESSIONS)
+
+    def test_admin_can_reset_users_characters_codes_and_sessions(self) -> None:
+        admin_token, _ = admin_bootstrap("admin@example.com", "neonpass", "test-admin-key", self.store)
+        admin_session = WEB_SESSIONS[admin_token]
+        player_token, _ = signup("runner@example.com", "neonpass", self.store)
+        create_character_for_session(WEB_SESSIONS[player_token], "Runner", "demon", self.store)
+        request_password_reset("runner@example.com", self.store)
+
+        output, account = run_command_for_session(admin_session, "admin reset-users CONFIRM", self.store)
+
+        self.assertIn("All users, characters, and email codes were reset", output)
+        self.assertIn("users=2", output)
+        self.assertFalse(account["authenticated"])
+        self.assertEqual(self.store.list_users(), [])
+        self.assertEqual(self.store.list_email_codes(), [])
+        self.assertEqual(self.store.admin_count(), 0)
+        self.assertEqual(WEB_SESSIONS, {})
+
+        token, bootstrap_account = admin_bootstrap("newadmin@example.com", "neonpass", "test-admin-key", self.store)
+
+        self.assertIn(token, WEB_SESSIONS)
+        self.assertTrue(bootstrap_account["user"]["isAdmin"])
+
     def test_password_reset_changes_login_password(self) -> None:
         signup("runner@example.com", "neonpass", self.store)
 
