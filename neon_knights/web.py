@@ -23,6 +23,7 @@ from .world import ANCESTRIES, AUGMENTS, FACTIONS, GEAR
 
 AUTH_COOKIE = "nk_auth"
 STATIC_ROOT = Path(__file__).resolve().parent.parent / "static"
+INDEX_TEMPLATE_PATH = STATIC_ROOT / "index.html"
 WEB_SESSIONS: dict[str, WebSession] = {}
 _STORE: AuthStore | None = None
 
@@ -642,7 +643,8 @@ def render_index() -> str:
         f'<option value="{html.escape(key)}">{html.escape(ancestry.name)}</option>'
         for key, ancestry in ANCESTRIES.items()
     )
-    return INDEX_HTML.replace("__ANCESTRY_OPTIONS__", ancestry_options)
+    template = INDEX_TEMPLATE_PATH.read_text(encoding="utf-8") if INDEX_TEMPLATE_PATH.exists() else INDEX_HTML
+    return template.replace("__ANCESTRY_OPTIONS__", ancestry_options)
 
 
 INDEX_HTML = r"""<!doctype html>

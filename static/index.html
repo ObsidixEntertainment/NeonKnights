@@ -1,0 +1,903 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Neon Knights</title>
+  <style>
+    :root {
+      --ink: #f7f3e8;
+      --soft: #c9d0c8;
+      --muted: #8d9891;
+      --black: #050707;
+      --panel: rgba(7, 10, 11, 0.86);
+      --panel-strong: rgba(10, 15, 16, 0.96);
+      --line: rgba(247, 243, 232, 0.18);
+      --red: #ff405f;
+      --cyan: #28d8e8;
+      --green: #77f07c;
+      --gold: #e5c66a;
+      --violet: #b17cff;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html, body {
+      margin: 0;
+      min-height: 100%;
+    }
+
+    body {
+      color: var(--ink);
+      background:
+        linear-gradient(90deg, rgba(2, 4, 5, 0.78), rgba(2, 4, 5, 0.36) 48%, rgba(2, 4, 5, 0.86)),
+        linear-gradient(180deg, rgba(2, 4, 5, 0.22), rgba(2, 4, 5, 0.92)),
+        url("/static/images/neon-gothic-city.png") center / cover fixed no-repeat,
+        #050707;
+      font-family: "Segoe UI", Arial, sans-serif;
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background:
+        repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.035) 0, rgba(255, 255, 255, 0.035) 1px, transparent 1px, transparent 4px);
+      opacity: 0.22;
+    }
+
+    button, input, select {
+      min-width: 0;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      color: var(--ink);
+      font: inherit;
+    }
+
+    button {
+      cursor: pointer;
+      background: rgba(22, 28, 27, 0.96);
+    }
+
+    button:hover, button:focus-visible,
+    input:focus, select:focus {
+      outline: none;
+      border-color: var(--cyan);
+      box-shadow: 0 0 0 2px rgba(40, 216, 232, 0.18);
+    }
+
+    input, select {
+      width: 100%;
+      padding: 0.86rem 0.9rem;
+      background: rgba(4, 8, 9, 0.84);
+    }
+
+    .chrome {
+      position: relative;
+      z-index: 1;
+      display: grid;
+      grid-template-columns: minmax(18rem, 0.9fr) minmax(23rem, 1.35fr) minmax(18rem, 0.8fr);
+      gap: 1rem;
+      min-height: 100vh;
+      padding: 1rem;
+    }
+
+    body:not(.is-authed) .chrome {
+      grid-template-columns: minmax(18rem, 0.95fr) minmax(24rem, 1.25fr);
+      max-width: 1160px;
+      margin: 0 auto;
+    }
+
+    body:not(.is-authed) .ledger {
+      display: none;
+    }
+
+    body:not(.is-authed) .log {
+      min-height: 8rem;
+    }
+
+    .panel {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      box-shadow: 0 1.2rem 3.5rem rgba(0, 0, 0, 0.42);
+      overflow: hidden;
+      min-height: 0;
+    }
+
+    .brand {
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      background:
+        linear-gradient(180deg, rgba(10, 15, 16, 0.8), rgba(5, 7, 7, 0.94)),
+        rgba(5, 7, 7, 0.92);
+    }
+
+    .brand-head, .terminal-head, .ledger-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      padding: 1rem;
+      border-bottom: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.035);
+    }
+
+    .kicker, .label {
+      color: var(--muted);
+      font-size: 0.72rem;
+      text-transform: uppercase;
+    }
+
+    .pulse {
+      width: 0.72rem;
+      height: 0.72rem;
+      border-radius: 50%;
+      background: var(--green);
+      box-shadow: 0 0 1rem var(--green);
+      flex: 0 0 auto;
+    }
+
+    .brand-stage {
+      display: grid;
+      align-content: end;
+      gap: 1rem;
+      padding: 1.15rem;
+      min-height: 26rem;
+    }
+
+    h1, h2, h3, p {
+      margin: 0;
+      letter-spacing: 0;
+    }
+
+    h1 {
+      font-size: 3rem;
+      line-height: 0.95;
+      text-transform: uppercase;
+      text-shadow: 0 0 1.2rem rgba(40, 216, 232, 0.34);
+    }
+
+    h2 {
+      font-size: 1.45rem;
+      line-height: 1.12;
+    }
+
+    h3 {
+      font-size: 1rem;
+      line-height: 1.15;
+    }
+
+    .subtitle {
+      max-width: 28rem;
+      color: var(--soft);
+      line-height: 1.45;
+    }
+
+    .callouts {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 0.5rem;
+    }
+
+    .callout {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 0.7rem;
+      background: rgba(255, 255, 255, 0.035);
+    }
+
+    .callout strong {
+      display: block;
+      color: var(--ink);
+      font-size: 0.95rem;
+      margin-top: 0.25rem;
+    }
+
+    .ascii {
+      margin: 0;
+      padding: 1rem;
+      overflow: auto;
+      border-top: 1px solid var(--line);
+      color: var(--cyan);
+      background: rgba(0, 0, 0, 0.24);
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 0.76rem;
+      line-height: 1.1;
+      white-space: pre;
+    }
+
+    .terminal {
+      display: grid;
+      grid-template-rows: auto auto minmax(0, 1fr) auto auto auto;
+      min-height: 0;
+      background: rgba(4, 7, 8, 0.9);
+    }
+
+    .terminal-title {
+      display: grid;
+      gap: 0.25rem;
+    }
+
+    #location {
+      color: var(--muted);
+      font-size: 0.78rem;
+      text-transform: uppercase;
+    }
+
+    .access {
+      display: grid;
+      gap: 0.95rem;
+      padding: 1rem;
+      border-bottom: 1px solid var(--line);
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.015)),
+        var(--panel-strong);
+    }
+
+    .access-title {
+      display: grid;
+      gap: 0.3rem;
+    }
+
+    .auth-tabs {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 0.35rem;
+      padding: 0.25rem;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(0, 0, 0, 0.28);
+    }
+
+    .auth-tabs button {
+      min-height: 2.45rem;
+      padding: 0.5rem 0.35rem;
+      color: var(--muted);
+      background: transparent;
+    }
+
+    .auth-tabs button.active {
+      color: var(--ink);
+      background: rgba(40, 216, 232, 0.12);
+      border-color: rgba(40, 216, 232, 0.62);
+    }
+
+    .auth-form {
+      display: grid;
+      gap: 0.7rem;
+    }
+
+    .field {
+      display: grid;
+      gap: 0.35rem;
+    }
+
+    .actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.55rem;
+    }
+
+    .primary {
+      min-height: 2.9rem;
+      border-color: rgba(40, 216, 232, 0.62);
+      color: #061012;
+      background: linear-gradient(180deg, #7debf4, #28d8e8);
+      font-weight: 700;
+    }
+
+    .danger {
+      min-height: 2.9rem;
+      border-color: rgba(255, 64, 95, 0.7);
+      color: var(--ink);
+      background: rgba(255, 64, 95, 0.14);
+      font-weight: 700;
+    }
+
+    .secondary {
+      min-height: 2.9rem;
+      color: var(--ink);
+      background: rgba(255, 255, 255, 0.06);
+    }
+
+    .log {
+      min-height: 12rem;
+      padding: 1rem;
+      overflow: auto;
+      white-space: pre-wrap;
+      line-height: 1.45;
+      background: rgba(0, 0, 0, 0.42);
+      font-family: Consolas, "Courier New", monospace;
+    }
+
+    .line {
+      margin-bottom: 1rem;
+    }
+
+    .line.input {
+      color: var(--cyan);
+    }
+
+    .line.system {
+      color: var(--gold);
+    }
+
+    .composer, .roll {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 0.5rem;
+      padding: 0.85rem;
+      border-top: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    .roll {
+      grid-template-columns: minmax(0, 1fr) minmax(9rem, 13rem) auto;
+    }
+
+    .verify {
+      grid-template-columns: minmax(0, 1fr) auto auto;
+    }
+
+    .quick {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 0.45rem;
+      padding: 0 0.85rem 0.85rem;
+      border-top: 1px solid var(--line);
+    }
+
+    .quick button {
+      min-height: 2.4rem;
+      color: var(--soft);
+    }
+
+    .ledger {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      background: rgba(5, 8, 9, 0.88);
+    }
+
+    .sheet {
+      display: grid;
+      align-content: start;
+      gap: 0.8rem;
+      padding: 1rem;
+      overflow: auto;
+    }
+
+    .stat {
+      display: grid;
+      gap: 0.25rem;
+      padding-bottom: 0.65rem;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .value {
+      overflow-wrap: anywhere;
+    }
+
+    .characters {
+      display: grid;
+      gap: 0.45rem;
+    }
+
+    .character-button {
+      min-height: 3rem;
+      padding: 0.7rem;
+      text-align: left;
+      color: var(--ink);
+      background: rgba(255, 255, 255, 0.045);
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    @media (min-width: 981px) {
+      .chrome {
+        height: 100vh;
+        overflow: hidden;
+      }
+    }
+
+    @media (max-width: 1100px) {
+      .chrome {
+        grid-template-columns: minmax(17rem, 0.8fr) minmax(22rem, 1.2fr);
+      }
+
+      .ledger {
+        grid-column: 1 / -1;
+      }
+    }
+
+    @media (max-width: 760px) {
+      body {
+        background-attachment: scroll;
+      }
+
+      .chrome {
+        grid-template-columns: 1fr;
+        padding: 0.55rem;
+      }
+
+      h1 {
+        font-size: 2.25rem;
+      }
+
+      .brand-stage {
+        min-height: 19rem;
+      }
+
+      .auth-tabs, .callouts, .quick {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .actions, .composer, .roll, .verify {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="chrome">
+    <section class="panel brand" aria-label="Neon Knights identity">
+      <div class="brand-head">
+        <span class="kicker">Obsidix Gate</span>
+        <span class="pulse" aria-hidden="true"></span>
+      </div>
+      <div class="brand-stage">
+        <div class="brand-copy">
+          <p class="kicker">Cyber-Fantasy MUD Architecture</p>
+          <h1>Neon Knights</h1>
+          <p class="subtitle">Blood. Chrome. Witchlight. Rain. The Redline is open.</p>
+        </div>
+        <div class="callouts" aria-label="City signal">
+          <div class="callout"><span class="label">Court</span><strong>Blood</strong></div>
+          <div class="callout"><span class="label">Union</span><strong>Pack</strong></div>
+          <div class="callout"><span class="label">Grid</span><strong>Hex</strong></div>
+          <div class="callout"><span class="label">Choir</span><strong>Synth</strong></div>
+        </div>
+      </div>
+      <pre class="ascii">       /\  REDLINE ACCESS  /\
+  ____/  \____      ____/  \____
+ |  red glass |____| chrome rain |
+ |__cathedral_|    |__moon grid__|</pre>
+    </section>
+
+    <section class="panel terminal" aria-label="Neon Knights terminal">
+      <div class="terminal-head">
+        <div class="terminal-title">
+          <h2>Access Console</h2>
+          <span id="location">No active body</span>
+        </div>
+        <span class="pulse" aria-hidden="true"></span>
+      </div>
+
+      <div id="authPanel" class="access">
+        <div class="access-title">
+          <span class="kicker">Secure Redline Relay</span>
+          <h2>Enter The City</h2>
+        </div>
+
+        <div class="auth-tabs" role="tablist" aria-label="Account actions">
+          <button type="button" data-auth-mode="login" class="active">Sign In</button>
+          <button type="button" data-auth-mode="signup">Create</button>
+          <button type="button" data-auth-mode="reset">Reset</button>
+          <button type="button" data-auth-mode="admin">Admin</button>
+        </div>
+
+        <form id="loginForm" class="auth-form" data-auth-form="login">
+          <label class="field"><span class="label">Email</span><input id="loginEmail" type="email" autocomplete="email" required></label>
+          <label class="field"><span class="label">Password</span><input id="loginPassword" type="password" autocomplete="current-password" required></label>
+          <button class="primary" type="submit">Enter City</button>
+        </form>
+
+        <form id="signupForm" class="auth-form hidden" data-auth-form="signup">
+          <label class="field"><span class="label">Email</span><input id="signupEmail" type="email" autocomplete="email" required></label>
+          <label class="field"><span class="label">Password</span><input id="signupPassword" type="password" autocomplete="new-password" required></label>
+          <button class="primary" type="submit">Create Account</button>
+        </form>
+
+        <form id="resetForm" class="auth-form hidden" data-auth-form="reset">
+          <label class="field"><span class="label">Email</span><input id="resetEmail" type="email" autocomplete="email" required></label>
+          <label class="field"><span class="label">Reset Code</span><input id="resetCode" maxlength="12" autocomplete="one-time-code"></label>
+          <label class="field"><span class="label">New Password</span><input id="resetPassword" type="password" autocomplete="new-password"></label>
+          <div class="actions">
+            <button id="sendResetButton" class="secondary" type="button">Send Code</button>
+            <button class="primary" type="submit">Set Password</button>
+          </div>
+        </form>
+
+        <form id="adminForm" class="auth-form hidden" data-auth-form="admin">
+          <label class="field"><span class="label">Admin Email</span><input id="adminEmail" type="email" autocomplete="email" required></label>
+          <label class="field"><span class="label">Admin Password</span><input id="adminPassword" type="password" autocomplete="new-password" required></label>
+          <label class="field"><span class="label">Bootstrap Key</span><input id="adminBootstrapKey" type="password" autocomplete="one-time-code" required></label>
+          <button class="danger" type="submit">Claim Admin</button>
+        </form>
+      </div>
+
+      <div id="log" class="log" aria-live="polite"></div>
+
+      <form id="verifyForm" class="composer verify hidden">
+        <input id="emailCode" name="emailCode" maxlength="12" placeholder="Email code" autocomplete="one-time-code">
+        <button class="secondary" type="submit">Verify</button>
+        <button id="sendCodeButton" class="secondary" type="button">Send Code</button>
+      </form>
+
+      <form id="createForm" class="roll hidden">
+        <input id="handle" name="handle" maxlength="32" placeholder="Handle" autocomplete="off" required>
+        <select id="ancestry" name="ancestry" aria-label="Ancestry">
+          __ANCESTRY_OPTIONS__
+        </select>
+        <button class="primary" type="submit">Create</button>
+      </form>
+
+      <form id="commandForm" class="composer hidden">
+        <input id="command" name="command" placeholder=">" autocomplete="off">
+        <button class="primary" type="submit">Send</button>
+      </form>
+
+      <div id="quickCommands" class="quick hidden">
+        <button data-command="look">look</button>
+        <button data-command="scan">scan</button>
+        <button data-command="shop">shop</button>
+        <button data-command="inventory">inventory</button>
+        <button data-command="gear">gear</button>
+        <button data-command="north">north</button>
+        <button data-command="attack">attack</button>
+        <button data-command="tutorial">tutorial</button>
+      </div>
+    </section>
+
+    <aside class="panel ledger" aria-label="Character sheet">
+      <div class="ledger-head">
+        <h3>Body Ledger</h3>
+        <button id="logoutButton" class="secondary hidden" type="button">Log Out</button>
+      </div>
+      <div class="sheet">
+        <div class="stat"><span class="label">Email</span><span id="sheetEmail" class="value">-</span></div>
+        <div class="stat"><span class="label">Role</span><span id="sheetRole" class="value">-</span></div>
+        <div class="stat"><span class="label">Email Auth</span><span id="sheetEmailAuth" class="value">-</span></div>
+        <div class="stat"><span class="label">Slots</span><span id="sheetSlots" class="value">0/2</span></div>
+        <div id="characterList" class="characters hidden"></div>
+        <div class="stat"><span class="label">Handle</span><span id="sheetName" class="value">-</span></div>
+        <div class="stat"><span class="label">Ancestry</span><span id="sheetAncestry" class="value">-</span></div>
+        <div class="stat"><span class="label">Faction</span><span id="sheetFaction" class="value">-</span></div>
+        <div class="stat"><span class="label">Health</span><span id="sheetHealth" class="value">-</span></div>
+        <div class="stat"><span class="label">Credits</span><span id="sheetCredits" class="value">-</span></div>
+        <div class="stat"><span class="label">Essence</span><span id="sheetEssence" class="value">-</span></div>
+        <div class="stat"><span class="label">Gear</span><span id="sheetGear" class="value">-</span></div>
+        <div class="stat"><span class="label">Inventory</span><span id="sheetInventory" class="value">-</span></div>
+        <div class="stat"><span class="label">Augments</span><span id="sheetAugments" class="value">-</span></div>
+      </div>
+    </aside>
+  </main>
+
+  <script>
+    const log = document.querySelector("#log");
+    const authPanel = document.querySelector("#authPanel");
+    const authModeButtons = document.querySelectorAll("[data-auth-mode]");
+    const authForms = document.querySelectorAll("[data-auth-form]");
+    const loginForm = document.querySelector("#loginForm");
+    const signupForm = document.querySelector("#signupForm");
+    const adminForm = document.querySelector("#adminForm");
+    const resetForm = document.querySelector("#resetForm");
+    const sendResetButton = document.querySelector("#sendResetButton");
+    const verifyForm = document.querySelector("#verifyForm");
+    const sendCodeButton = document.querySelector("#sendCodeButton");
+    const createForm = document.querySelector("#createForm");
+    const commandForm = document.querySelector("#commandForm");
+    const commandInput = document.querySelector("#command");
+    const quickCommands = document.querySelector("#quickCommands");
+    const characterList = document.querySelector("#characterList");
+    const logoutButton = document.querySelector("#logoutButton");
+
+    const sheet = {
+      location: document.querySelector("#location"),
+      email: document.querySelector("#sheetEmail"),
+      role: document.querySelector("#sheetRole"),
+      emailAuth: document.querySelector("#sheetEmailAuth"),
+      slots: document.querySelector("#sheetSlots"),
+      name: document.querySelector("#sheetName"),
+      ancestry: document.querySelector("#sheetAncestry"),
+      faction: document.querySelector("#sheetFaction"),
+      health: document.querySelector("#sheetHealth"),
+      credits: document.querySelector("#sheetCredits"),
+      essence: document.querySelector("#sheetEssence"),
+      gear: document.querySelector("#sheetGear"),
+      inventory: document.querySelector("#sheetInventory"),
+      augments: document.querySelector("#sheetAugments")
+    };
+
+    function setAuthMode(mode) {
+      for (const button of authModeButtons) {
+        button.classList.toggle("active", button.dataset.authMode === mode);
+      }
+      for (const form of authForms) {
+        form.classList.toggle("hidden", form.dataset.authForm !== mode);
+      }
+    }
+
+    authModeButtons.forEach((button) => {
+      button.addEventListener("click", () => setAuthMode(button.dataset.authMode));
+    });
+
+    function append(text, kind = "") {
+      const line = document.createElement("div");
+      line.className = `line ${kind}`;
+      line.textContent = text;
+      log.appendChild(line);
+      log.scrollTop = log.scrollHeight;
+    }
+
+    function setMode(account) {
+      const authed = Boolean(account?.authenticated);
+      const active = Boolean(account?.state);
+      const admin = Boolean(account?.user?.isAdmin);
+      const emailVerified = Boolean(account?.user?.emailVerified);
+      const slotsUsed = account?.characters?.length || 0;
+      const maxSlots = account?.maxCharacters || 2;
+      const commandReady = active || (authed && admin);
+
+      document.body.classList.toggle("is-authed", authed);
+      authPanel.classList.toggle("hidden", authed);
+      logoutButton.classList.toggle("hidden", !authed);
+      verifyForm.classList.toggle("hidden", !authed || emailVerified);
+      createForm.classList.toggle("hidden", !authed || active || slotsUsed >= maxSlots);
+      commandForm.classList.toggle("hidden", !commandReady);
+      quickCommands.classList.toggle("hidden", !active);
+      characterList.classList.toggle("hidden", !authed || active || slotsUsed === 0);
+
+      if (commandReady) {
+        commandInput.focus();
+      }
+    }
+
+    function renderCharacters(account) {
+      characterList.textContent = "";
+      if (!account?.characters?.length || account.state) return;
+
+      for (const character of account.characters) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "character-button";
+        button.dataset.characterId = character.id;
+        button.textContent = `${character.slot}. ${character.name} / ${character.ancestry} / ${character.location}`;
+        characterList.appendChild(button);
+      }
+    }
+
+    function renderAccount(account) {
+      sheet.email.textContent = account?.user?.email || "-";
+      sheet.role.textContent = account?.user?.isAdmin ? "Admin" : (account?.authenticated ? "Player" : "-");
+      sheet.emailAuth.textContent = account?.user?.emailVerified ? "Verified" : (account?.authenticated ? "Unverified" : "-");
+      sheet.slots.textContent = `${account?.characters?.length || 0}/${account?.maxCharacters || 2}`;
+      renderCharacters(account);
+      renderState(account?.state || null);
+      setMode(account);
+    }
+
+    function renderState(state) {
+      if (!state) {
+        sheet.location.textContent = "No active body";
+        sheet.name.textContent = "-";
+        sheet.ancestry.textContent = "-";
+        sheet.faction.textContent = "-";
+        sheet.health.textContent = "-";
+        sheet.credits.textContent = "-";
+        sheet.essence.textContent = "-";
+        sheet.gear.textContent = "-";
+        sheet.inventory.textContent = "-";
+        sheet.augments.textContent = "-";
+        return;
+      }
+      sheet.location.textContent = state.location;
+      sheet.name.textContent = state.name;
+      sheet.ancestry.textContent = state.ancestry;
+      sheet.faction.textContent = state.faction;
+      sheet.health.textContent = `${state.hp}/${state.maxHp}`;
+      sheet.credits.textContent = state.credits;
+      sheet.essence.textContent = state.essence;
+      sheet.gear.textContent = Object.entries(state.equipment).map(([slot, item]) => `${slot}: ${item}`).join(", ") || "None";
+      sheet.inventory.textContent = state.inventory.length ? state.inventory.join(", ") : "None";
+      sheet.augments.textContent = state.augments.length ? state.augments.join(", ") : "None";
+    }
+
+    async function postJson(url, payload = {}) {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || "Request failed.");
+      }
+      return data;
+    }
+
+    function appendDelivery(data) {
+      if (data?.emailDelivery?.detail) {
+        append(data.emailDelivery.detail, "system");
+      }
+    }
+
+    loginForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      try {
+        const data = await postJson("/api/login", {
+          email: document.querySelector("#loginEmail").value,
+          password: document.querySelector("#loginPassword").value
+        });
+        log.textContent = "";
+        append("Account linked. Select a body or create one.", "system");
+        appendDelivery(data);
+        renderAccount(data);
+      } catch (error) {
+        append(error.message, "system");
+      }
+    });
+
+    signupForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      try {
+        const data = await postJson("/api/signup", {
+          email: document.querySelector("#signupEmail").value,
+          password: document.querySelector("#signupPassword").value
+        });
+        log.textContent = "";
+        append("Account created. Two character slots are available.", "system");
+        appendDelivery(data);
+        renderAccount(data);
+      } catch (error) {
+        append(error.message, "system");
+      }
+    });
+
+    adminForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      try {
+        const data = await postJson("/api/admin/bootstrap", {
+          email: document.querySelector("#adminEmail").value,
+          password: document.querySelector("#adminPassword").value,
+          bootstrapKey: document.querySelector("#adminBootstrapKey").value
+        });
+        log.textContent = "";
+        append(data.output || "Admin account claimed.", "system");
+        appendDelivery(data);
+        renderAccount(data);
+      } catch (error) {
+        append(error.message, "system");
+      }
+    });
+
+    sendResetButton.addEventListener("click", async () => {
+      try {
+        const data = await postJson("/api/request-password-reset", {
+          email: document.querySelector("#resetEmail").value
+        });
+        append(data.output || "Reset code sent.", "system");
+        appendDelivery(data);
+      } catch (error) {
+        append(error.message, "system");
+      }
+    });
+
+    resetForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      try {
+        const data = await postJson("/api/reset-password", {
+          email: document.querySelector("#resetEmail").value,
+          code: document.querySelector("#resetCode").value,
+          password: document.querySelector("#resetPassword").value
+        });
+        append(data.output || "Password updated.", "system");
+        appendDelivery(data);
+        renderAccount(data);
+      } catch (error) {
+        append(error.message, "system");
+      }
+    });
+
+    verifyForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      try {
+        const data = await postJson("/api/verify-email", {
+          code: document.querySelector("#emailCode").value
+        });
+        append(data.output || "Email verified.", "system");
+        renderAccount(data);
+      } catch (error) {
+        append(error.message, "system");
+      }
+    });
+
+    sendCodeButton.addEventListener("click", async () => {
+      try {
+        const data = await postJson("/api/request-email-code");
+        append(data.output || "Email code sent.", "system");
+        appendDelivery(data);
+        renderAccount(data);
+      } catch (error) {
+        append(error.message, "system");
+      }
+    });
+
+    createForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      try {
+        const data = await postJson("/api/character", {
+          name: document.querySelector("#handle").value,
+          ancestry: document.querySelector("#ancestry").value
+        });
+        log.textContent = "";
+        append(data.output, "system");
+        renderAccount(data);
+      } catch (error) {
+        append(error.message, "system");
+      }
+    });
+
+    characterList.addEventListener("click", async (event) => {
+      const button = event.target.closest("button[data-character-id]");
+      if (!button) return;
+      try {
+        const data = await postJson("/api/select-character", {
+          characterId: Number(button.dataset.characterId)
+        });
+        log.textContent = "";
+        append(data.output, "system");
+        renderAccount(data);
+      } catch (error) {
+        append(error.message, "system");
+      }
+    });
+
+    commandForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const command = commandInput.value.trim();
+      if (!command) return;
+      commandInput.value = "";
+      append(`> ${command}`, "input");
+      try {
+        const data = await postJson("/api/command", { command });
+        append(data.output);
+        renderAccount(data);
+      } catch (error) {
+        append(error.message, "system");
+      }
+    });
+
+    quickCommands.addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-command]");
+      if (!button) return;
+      commandInput.value = button.dataset.command;
+      commandForm.requestSubmit();
+    });
+
+    logoutButton.addEventListener("click", async () => {
+      const data = await postJson("/api/logout");
+      log.textContent = "";
+      append("Logged out.", "system");
+      renderAccount(data);
+    });
+
+    fetch("/api/state")
+      .then((response) => response.json())
+      .then((data) => {
+        renderAccount(data);
+        if (data.authenticated && data.state) {
+          append("Session restored. Type look.", "system");
+        } else if (data.authenticated) {
+          append("Account restored. Select a body or create one.", "system");
+        }
+      })
+      .catch(() => append("Signal lost.", "system"));
+  </script>
+</body>
+</html>
