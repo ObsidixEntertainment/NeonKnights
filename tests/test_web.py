@@ -8,7 +8,6 @@ from neon_knights.auth import AuthStore
 from neon_knights.web import (
     WEB_SESSIONS,
     admin_bootstrap,
-    admin_reset_users,
     create_character_for_session,
     login,
     request_email_code_for_session,
@@ -39,6 +38,7 @@ class WebSessionTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         WEB_SESSIONS.clear()
+        self.store.close()
         restore_env("NEON_KNIGHTS_MAIL_OUTBOX", self.old_outbox)
         restore_env("NEON_KNIGHTS_ADMIN_BOOTSTRAP_KEY", self.old_admin_key)
         self.tempdir.cleanup()
@@ -166,61 +166,19 @@ class WebSessionTests(unittest.TestCase):
         self.assertIn("password-reset", output)
         self.assertIn(code, output)
 
-    def test_admin_reset_users_requires_confirmation(self) -> None:
-        admin_token, _ = admin_bootstrap("admin@example.com", "neonpass", "test-admin-key", self.store)
-        admin_session = WEB_SESSIONS[admin_token]
-        signup("runner@example.com", "neonpass", self.store)
-
-        output, account = run_command_for_session(admin_session, "admin reset-users", self.store)
-
-        self.assertIn("Usage: admin reset-users CONFIRM", output)
-        self.assertTrue(account["authenticated"])
-        self.assertEqual(len(self.store.list_users()), 2)
-        self.assertIn(admin_token, WEB_SESSIONS)
-
-    def test_admin_can_reset_users_characters_codes_and_sessions(self) -> None:
-        admin_token, _ = admin_bootstrap("admin@example.com", "neonpass", "test-admin-key", self.store)
-        admin_session = WEB_SESSIONS[admin_token]
+    def test_internal_store_can_reset_users_characters_and_codes(self) -> None:
+        admin_bootstrap("admin@example.com", "neonpass", "test-admin-key", self.store)
         player_token, _ = signup("runner@example.com", "neonpass", self.store)
         create_character_for_session(WEB_SESSIONS[player_token], "Runner", "demon", self.store)
         request_password_reset("runner@example.com", self.store)
 
-        output, account = run_command_for_session(admin_session, "admin reset-users CONFIRM", self.store)
+        summary = self.store.reset_all_accounts()
 
-        self.assertIn("All users, characters, and email codes were reset", output)
-        self.assertIn("users=2", output)
-        self.assertFalse(account["authenticated"])
+        self.assertEqual(summary.users, 2)
+        self.assertEqual(summary.characters, 1)
         self.assertEqual(self.store.list_users(), [])
         self.assertEqual(self.store.list_email_codes(), [])
         self.assertEqual(self.store.admin_count(), 0)
-        self.assertEqual(WEB_SESSIONS, {})
-
-        token, bootstrap_account = admin_bootstrap("newadmin@example.com", "neonpass", "test-admin-key", self.store)
-
-        self.assertIn(token, WEB_SESSIONS)
-        self.assertTrue(bootstrap_account["user"]["isAdmin"])
-
-    def test_bootstrap_key_can_reset_users_without_active_admin_session(self) -> None:
-        admin_bootstrap("admin@example.com", "neonpass", "test-admin-key", self.store)
-        player_token, _ = signup("runner@example.com", "neonpass", self.store)
-        create_character_for_session(WEB_SESSIONS[player_token], "Runner", "demon", self.store)
-        request_password_reset("runner@example.com", self.store)
-
-        response = admin_reset_users("test-admin-key", self.store)
-
-        self.assertIn("All users, characters, and email codes were reset", response["output"])
-        self.assertFalse(response["authenticated"])
-        self.assertEqual(self.store.list_users(), [])
-        self.assertEqual(self.store.list_email_codes(), [])
-        self.assertEqual(WEB_SESSIONS, {})
-
-    def test_bootstrap_key_reset_rejects_bad_key(self) -> None:
-        admin_bootstrap("admin@example.com", "neonpass", "test-admin-key", self.store)
-
-        with self.assertRaisesRegex(ValueError, "incorrect"):
-            admin_reset_users("wrong-key", self.store)
-
-        self.assertEqual(self.store.admin_count(), 1)
 
     def test_password_reset_changes_login_password(self) -> None:
         signup("runner@example.com", "neonpass", self.store)
@@ -239,19 +197,10 @@ class WebSessionTests(unittest.TestCase):
 
 
 def latest_code(store: AuthStore, purpose: str) -> str:
-    with store.connect() as db:
-        row = db.execute(
-            """
-            SELECT code FROM email_codes
-            WHERE purpose = ?
-            ORDER BY created_at DESC, id DESC
-            LIMIT 1
-            """,
-            (purpose,),
-        ).fetchone()
-    if row is None:
-        raise AssertionError(f"No code found for {purpose}")
-    return str(row["code"])
+    for code in store.list_email_codes(limit=100):
+        if code.purpose == purpose:
+            return code.code
+    raise AssertionError(f"No code found for {purpose}")
 
 
 if __name__ == "__main__":

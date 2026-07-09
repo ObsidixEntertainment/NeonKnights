@@ -32,7 +32,7 @@ Then open:
 http://127.0.0.1:8000
 ```
 
-Local browser accounts are stored in `neon_knights.sqlite3` by default. On Render Free, local SQLite data is demo-grade because free web services do not preserve filesystem changes across restarts or deploys. Use a paid Render disk or a managed database before treating accounts as permanent.
+Local browser accounts are stored in `neon_knights.sqlite3` by default. Production should set `DATABASE_URL` to a managed PostgreSQL connection string so accounts, characters, and email codes survive deploys and instance replacement.
 
 ## Admin Bootstrap And Email Auth
 
@@ -57,14 +57,7 @@ admin codes
 admin codes player@example.com
 admin grant player@example.com
 admin verify player@example.com
-admin reset-users CONFIRM
 admin me
-```
-
-If a deploy clears active web sessions while accounts still exist, the server owner can reset accounts with the same private bootstrap key:
-
-```powershell
-curl.exe -X POST https://your-service.onrender.com/api/admin/reset-users -H "Content-Type: application/json" -d "{\"bootstrapKey\":\"your-private-first-admin-key\"}"
 ```
 
 Email delivery uses SMTP when configured:
@@ -84,8 +77,20 @@ Or install the script entry points:
 ```powershell
 py -m pip install -e .
 neon-knights
+neon-knights-admin
 neon-knights-web
 ```
+
+## Internal Operator Commands
+
+These are server-side commands, not browser features:
+
+```powershell
+neon-knights-admin list-users
+neon-knights-admin reset-users --confirm RESET
+```
+
+`reset-users` deletes accounts, characters, and email codes from the configured database. Use it from a controlled operator shell only.
 
 ## Run As A Local MUD Server
 
@@ -141,6 +146,7 @@ Render settings:
 Build Command: pip install -e .
 Start Command: python -m neon_knights.web --host 0.0.0.0
 Health Check Path: /healthz
+DATABASE_URL: managed PostgreSQL connection string
 ```
 
-Push the repo to GitHub, GitLab, Bitbucket, or another public Git URL, then create a Render Blueprint or Web Service from that repository. For an existing Render Blueprint, add new `sync: false` secret environment variables manually in the Render dashboard.
+Push the repo to GitHub, GitLab, Bitbucket, or another public Git URL, then create a Render Blueprint or Web Service from that repository. For an existing Render service, add `DATABASE_URL` from a managed PostgreSQL database plus the other `sync: false` secret environment variables in the Render dashboard.

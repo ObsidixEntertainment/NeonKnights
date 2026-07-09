@@ -245,7 +245,7 @@
 
     .auth-tabs {
       display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
+      grid-template-columns: repeat(3, minmax(0, 1fr));
       gap: 0.35rem;
       padding: 0.25rem;
       border: 1px solid var(--line);
@@ -302,6 +302,17 @@
       min-height: 2.9rem;
       color: var(--ink);
       background: rgba(255, 255, 255, 0.06);
+    }
+
+    .link-button {
+      width: max-content;
+      min-height: 0;
+      padding: 0;
+      border: 0;
+      color: var(--cyan);
+      background: transparent;
+      font-size: 0.86rem;
+      text-align: left;
     }
 
     .log {
@@ -487,7 +498,6 @@
         <div class="auth-tabs" role="tablist" aria-label="Account actions">
           <button type="button" data-auth-mode="login" class="active">Sign In</button>
           <button type="button" data-auth-mode="signup">Create</button>
-          <button type="button" data-auth-mode="reset">Reset</button>
           <button type="button" data-auth-mode="admin">Admin</button>
         </div>
 
@@ -495,6 +505,7 @@
           <label class="field"><span class="label">Email</span><input id="loginEmail" type="email" autocomplete="email" required></label>
           <label class="field"><span class="label">Password</span><input id="loginPassword" type="password" autocomplete="current-password" required></label>
           <button class="primary" type="submit">Enter City</button>
+          <button id="showRecoveryButton" class="link-button" type="button">Recover account access</button>
         </form>
 
         <form id="signupForm" class="auth-form hidden" data-auth-form="signup">
@@ -503,7 +514,7 @@
           <button class="primary" type="submit">Create Account</button>
         </form>
 
-        <form id="resetForm" class="auth-form hidden" data-auth-form="reset">
+        <form id="resetForm" class="auth-form hidden" data-auth-form="recovery">
           <label class="field"><span class="label">Email</span><input id="resetEmail" type="email" autocomplete="email" required></label>
           <label class="field"><span class="label">Reset Code</span><input id="resetCode" maxlength="12" autocomplete="one-time-code"></label>
           <label class="field"><span class="label">New Password</span><input id="resetPassword" type="password" autocomplete="new-password"></label>
@@ -511,6 +522,7 @@
             <button id="sendResetButton" class="secondary" type="button">Send Code</button>
             <button class="primary" type="submit">Set Password</button>
           </div>
+          <button id="cancelResetButton" class="link-button" type="button">Back to sign in</button>
         </form>
 
         <form id="adminForm" class="auth-form hidden" data-auth-form="admin">
@@ -588,6 +600,8 @@
     const adminForm = document.querySelector("#adminForm");
     const resetForm = document.querySelector("#resetForm");
     const sendResetButton = document.querySelector("#sendResetButton");
+    const showRecoveryButton = document.querySelector("#showRecoveryButton");
+    const cancelResetButton = document.querySelector("#cancelResetButton");
     const verifyForm = document.querySelector("#verifyForm");
     const sendCodeButton = document.querySelector("#sendCodeButton");
     const createForm = document.querySelector("#createForm");
@@ -626,6 +640,13 @@
     authModeButtons.forEach((button) => {
       button.addEventListener("click", () => setAuthMode(button.dataset.authMode));
     });
+
+    showRecoveryButton.addEventListener("click", () => {
+      document.querySelector("#resetEmail").value = document.querySelector("#loginEmail").value;
+      setAuthMode("recovery");
+    });
+
+    cancelResetButton.addEventListener("click", () => setAuthMode("login"));
 
     function append(text, kind = "") {
       const line = document.createElement("div");

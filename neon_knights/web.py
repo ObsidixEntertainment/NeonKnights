@@ -42,7 +42,6 @@ class WebSession:
 @dataclass(frozen=True)
 class AdminCommandResult:
     output: str
-    clear_sessions: bool = False
 
 
 class NeonKnightsHTTPServer(ThreadingHTTPServer):
@@ -50,7 +49,7 @@ class NeonKnightsHTTPServer(ThreadingHTTPServer):
 
 
 class NeonKnightsHandler(BaseHTTPRequestHandler):
-    server_version = "NeonKnightsWeb/0.6"
+    server_version = "NeonKnightsWeb/0.7"
 
     def do_GET(self) -> None:
         path = urlparse(self.path).path
@@ -95,11 +94,6 @@ class NeonKnightsHandler(BaseHTTPRequestHandler):
                     str(payload.get("bootstrapKey", "")),
                 )
                 self.send_json(response, cookie=token)
-                return
-
-            if path == "/api/admin/reset-users":
-                response = admin_reset_users(str(payload.get("bootstrapKey", "")))
-                self.send_json(response, clear_cookie=True)
                 return
 
             if path == "/api/request-password-reset":
@@ -297,21 +291,6 @@ def admin_bootstrap(
     return token, response
 
 
-def admin_reset_users(bootstrap_key: str, store: AuthStore | None = None) -> dict[str, Any]:
-    store = store or get_store()
-    expected = os.environ.get("NEON_KNIGHTS_ADMIN_BOOTSTRAP_KEY", "")
-    if not expected:
-        raise ValueError("Admin bootstrap key is not configured on this server.")
-    if not hmac.compare_digest(bootstrap_key.strip(), expected.strip()):
-        raise ValueError("Admin bootstrap key is incorrect.")
-
-    summary = store.reset_all_accounts()
-    WEB_SESSIONS.clear()
-    response = anonymous_payload()
-    response["output"] = reset_summary_output(summary)
-    return response
-
-
 def request_password_reset(email: str, store: AuthStore | None = None) -> dict[str, Any]:
     store = store or get_store()
     user = store.get_user_by_email(email)
@@ -419,9 +398,6 @@ def run_command_for_session(
     store = store or get_store()
     admin_result = maybe_handle_admin_command(web_session, command, store)
     if admin_result is not None:
-        if admin_result.clear_sessions:
-            WEB_SESSIONS.clear()
-            return admin_result.output, anonymous_payload()
         return admin_result.output, account_payload(web_session, store)
 
     if web_session.game is None or web_session.character_id is None:
@@ -495,7 +471,6 @@ def maybe_handle_admin_command(web_session: WebSession, command: str, store: Aut
                     "  admin codes [email]        Show recent verification/reset codes.",
                     "  admin grant <email>        Promote an existing account to admin.",
                     "  admin verify <email>       Mark an account email as verified.",
-                    "  admin reset-users CONFIRM  Reset all users, characters, and codes.",
                     "  admin me                   Show your admin account.",
                 ]
             )
@@ -533,20 +508,7 @@ def maybe_handle_admin_command(web_session: WebSession, command: str, store: Aut
             return AdminCommandResult(f"No account exists for {target}.")
         verified = store.set_email_verified(target_user.id)
         return AdminCommandResult(f"Verified email for {verified.email}.")
-    if verb == "reset-users":
-        if target.upper() != "CONFIRM":
-            return AdminCommandResult("Usage: admin reset-users CONFIRM")
-        summary = store.reset_all_accounts()
-        return AdminCommandResult(reset_summary_output(summary), clear_sessions=True)
     return AdminCommandResult(f"Unknown admin command: {verb}. Try 'admin help'.")
-
-
-def reset_summary_output(summary: Any) -> str:
-    return (
-        "All users, characters, and email codes were reset. "
-        "Bootstrap is open again. "
-        f"Removed users={summary.users}, characters={summary.characters}, email_codes={summary.email_codes}."
-    )
 
 
 def admin_codes(store: AuthStore, email: str | None = None) -> str:
@@ -1116,7 +1078,7 @@ INDEX_HTML = r"""<!doctype html>
           <input id="resetEmail" type="email" placeholder="Reset email" autocomplete="email" required>
           <input id="resetCode" maxlength="12" placeholder="Reset code" autocomplete="one-time-code">
           <input id="resetPassword" type="password" placeholder="New password" autocomplete="new-password">
-          <button id="sendResetButton" type="button">Send Reset</button>
+          <button id="sendResetButton" type="button">Send Code</button>
           <button type="submit">Set Password</button>
         </form>
       </div>

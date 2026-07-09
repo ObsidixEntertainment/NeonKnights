@@ -4,10 +4,14 @@ version = "0.1.0"
 description = "A cyberpunk fantasy browser RPG inspired by MUD architecture, with supernatural ancestries, cybernetics, accounts, gear, and command-driven play."
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+  "SQLAlchemy>=2.0,<3",
+  "psycopg[binary]>=3.2,<4",
+]
 
 [project.scripts]
 neon-knights = "neon_knights.cli:main"
+neon-knights-admin = "neon_knights.admin:main"
 neon-knights-server = "neon_knights.server:main"
 neon-knights-web = "neon_knights.web:main"
 
