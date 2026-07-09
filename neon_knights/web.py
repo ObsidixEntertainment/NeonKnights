@@ -50,7 +50,7 @@ class NeonKnightsHTTPServer(ThreadingHTTPServer):
 
 
 class NeonKnightsHandler(BaseHTTPRequestHandler):
-    server_version = "NeonKnightsWeb/0.5"
+    server_version = "NeonKnightsWeb/0.6"
 
     def do_GET(self) -> None:
         path = urlparse(self.path).path
@@ -95,6 +95,11 @@ class NeonKnightsHandler(BaseHTTPRequestHandler):
                     str(payload.get("bootstrapKey", "")),
                 )
                 self.send_json(response, cookie=token)
+                return
+
+            if path == "/api/admin/reset-users":
+                response = admin_reset_users(str(payload.get("bootstrapKey", "")))
+                self.send_json(response, clear_cookie=True)
                 return
 
             if path == "/api/request-password-reset":
@@ -290,6 +295,21 @@ def admin_bootstrap(
     response = with_mail(account_payload(WEB_SESSIONS[token], store), delivery)
     response["output"] = "First admin account claimed. Your admin login details were sent to your email channel."
     return token, response
+
+
+def admin_reset_users(bootstrap_key: str, store: AuthStore | None = None) -> dict[str, Any]:
+    store = store or get_store()
+    expected = os.environ.get("NEON_KNIGHTS_ADMIN_BOOTSTRAP_KEY", "")
+    if not expected:
+        raise ValueError("Admin bootstrap key is not configured on this server.")
+    if not hmac.compare_digest(bootstrap_key.strip(), expected.strip()):
+        raise ValueError("Admin bootstrap key is incorrect.")
+
+    summary = store.reset_all_accounts()
+    WEB_SESSIONS.clear()
+    response = anonymous_payload()
+    response["output"] = reset_summary_output(summary)
+    return response
 
 
 def request_password_reset(email: str, store: AuthStore | None = None) -> dict[str, Any]:
@@ -517,13 +537,16 @@ def maybe_handle_admin_command(web_session: WebSession, command: str, store: Aut
         if target.upper() != "CONFIRM":
             return AdminCommandResult("Usage: admin reset-users CONFIRM")
         summary = store.reset_all_accounts()
-        return AdminCommandResult(
-            "All users, characters, and email codes were reset. "
-            "Bootstrap is open again. "
-            f"Removed users={summary.users}, characters={summary.characters}, email_codes={summary.email_codes}.",
-            clear_sessions=True,
-        )
+        return AdminCommandResult(reset_summary_output(summary), clear_sessions=True)
     return AdminCommandResult(f"Unknown admin command: {verb}. Try 'admin help'.")
+
+
+def reset_summary_output(summary: Any) -> str:
+    return (
+        "All users, characters, and email codes were reset. "
+        "Bootstrap is open again. "
+        f"Removed users={summary.users}, characters={summary.characters}, email_codes={summary.email_codes}."
+    )
 
 
 def admin_codes(store: AuthStore, email: str | None = None) -> str:

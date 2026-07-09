@@ -61,6 +61,12 @@ admin reset-users CONFIRM
 admin me
 ```
 
+If a deploy clears active web sessions while accounts still exist, the server owner can reset accounts with the same private bootstrap key:
+
+```powershell
+curl.exe -X POST https://your-service.onrender.com/api/admin/reset-users -H "Content-Type: application/json" -d "{\"bootstrapKey\":\"your-private-first-admin-key\"}"
+```
+
 Email delivery uses SMTP when configured:
 
 ```powershell

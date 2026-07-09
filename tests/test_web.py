@@ -8,6 +8,7 @@ from neon_knights.auth import AuthStore
 from neon_knights.web import (
     WEB_SESSIONS,
     admin_bootstrap,
+    admin_reset_users,
     create_character_for_session,
     login,
     request_email_code_for_session,
@@ -198,6 +199,28 @@ class WebSessionTests(unittest.TestCase):
 
         self.assertIn(token, WEB_SESSIONS)
         self.assertTrue(bootstrap_account["user"]["isAdmin"])
+
+    def test_bootstrap_key_can_reset_users_without_active_admin_session(self) -> None:
+        admin_bootstrap("admin@example.com", "neonpass", "test-admin-key", self.store)
+        player_token, _ = signup("runner@example.com", "neonpass", self.store)
+        create_character_for_session(WEB_SESSIONS[player_token], "Runner", "demon", self.store)
+        request_password_reset("runner@example.com", self.store)
+
+        response = admin_reset_users("test-admin-key", self.store)
+
+        self.assertIn("All users, characters, and email codes were reset", response["output"])
+        self.assertFalse(response["authenticated"])
+        self.assertEqual(self.store.list_users(), [])
+        self.assertEqual(self.store.list_email_codes(), [])
+        self.assertEqual(WEB_SESSIONS, {})
+
+    def test_bootstrap_key_reset_rejects_bad_key(self) -> None:
+        admin_bootstrap("admin@example.com", "neonpass", "test-admin-key", self.store)
+
+        with self.assertRaisesRegex(ValueError, "incorrect"):
+            admin_reset_users("wrong-key", self.store)
+
+        self.assertEqual(self.store.admin_count(), 1)
 
     def test_password_reset_changes_login_password(self) -> None:
         signup("runner@example.com", "neonpass", self.store)
