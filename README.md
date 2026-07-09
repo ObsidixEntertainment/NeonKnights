@@ -53,6 +53,8 @@ Bootstrap closes automatically after the first admin account exists. Admins can 
 ```text
 admin help
 admin users
+admin codes
+admin codes player@example.com
 admin grant player@example.com
 admin verify player@example.com
 admin me

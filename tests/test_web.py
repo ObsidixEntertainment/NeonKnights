@@ -149,6 +149,19 @@ class WebSessionTests(unittest.TestCase):
 
         self.assertIn("denied", output)
 
+    def test_admin_can_inspect_recent_email_codes(self) -> None:
+        admin_token, _ = admin_bootstrap("admin@example.com", "neonpass", "test-admin-key", self.store)
+        admin_session = WEB_SESSIONS[admin_token]
+        signup("runner@example.com", "neonpass", self.store)
+        request_password_reset("runner@example.com", self.store)
+        code = latest_code(self.store, "password-reset")
+
+        output, _ = run_command_for_session(admin_session, "admin codes runner@example.com", self.store)
+
+        self.assertIn("runner@example.com", output)
+        self.assertIn("password-reset", output)
+        self.assertIn(code, output)
+
     def test_password_reset_changes_login_password(self) -> None:
         signup("runner@example.com", "neonpass", self.store)
 

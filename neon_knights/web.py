@@ -6,6 +6,7 @@ import html
 import json
 import mimetypes
 import os
+import time
 from dataclasses import dataclass
 from http import HTTPStatus
 from http.cookies import SimpleCookie
@@ -461,6 +462,7 @@ def maybe_handle_admin_command(web_session: WebSession, command: str, store: Aut
             [
                 "Admin commands:",
                 "  admin users          List accounts and roles.",
+                "  admin codes [email]  Show recent verification/reset codes.",
                 "  admin grant <email>  Promote an existing account to admin.",
                 "  admin verify <email> Mark an account email as verified.",
                 "  admin me             Show your admin account.",
@@ -476,6 +478,8 @@ def maybe_handle_admin_command(web_session: WebSession, command: str, store: Aut
             character_count = len(store.list_characters(listed.id))
             lines.append(f"- {listed.email} | {role} | {verified} | characters={character_count}")
         return "\n".join(lines)
+    if verb in {"codes", "mail"}:
+        return admin_codes(store, target or None)
     if verb == "grant":
         if not target:
             return "Usage: admin grant <email>"
@@ -498,6 +502,32 @@ def maybe_handle_admin_command(web_session: WebSession, command: str, store: Aut
         verified = store.set_email_verified(target_user.id)
         return f"Verified email for {verified.email}."
     return f"Unknown admin command: {verb}. Try 'admin help'."
+
+
+def admin_codes(store: AuthStore, email: str | None = None) -> str:
+    try:
+        codes = store.list_email_codes(email=email, limit=10)
+    except ValueError as exc:
+        return str(exc)
+    if not codes:
+        suffix = f" for {email}" if email else ""
+        return f"No email codes found{suffix}."
+
+    now = int(time.time())
+    lines = ["Recent email codes:"]
+    for code in codes:
+        if code.used_at is not None:
+            status = "used"
+        elif code.expires_at < now:
+            status = "expired"
+        else:
+            status = "active"
+        created = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(code.created_at))
+        expires = time.strftime("%H:%M:%S", time.localtime(code.expires_at))
+        lines.append(
+            f"- {code.email} | {code.purpose} | {code.code} | {status} | created {created} | expires {expires}"
+        )
+    return "\n".join(lines)
 
 
 def send_account_email(user: User, store: AuthStore, event: str) -> MailResult:

@@ -40,6 +40,16 @@ class CharacterSummary:
     location: str
 
 
+@dataclass(frozen=True)
+class EmailCodeSummary:
+    email: str
+    purpose: str
+    code: str
+    created_at: int
+    expires_at: int
+    used_at: int | None
+
+
 class AuthStore:
     def __init__(self, db_path: str | Path | None = None):
         self.db_path = Path(db_path or os.environ.get("NEON_KNIGHTS_DB", "neon_knights.sqlite3"))
@@ -225,6 +235,39 @@ class AuthStore:
         with self.connect() as db:
             rows = db.execute("SELECT * FROM users ORDER BY created_at ASC").fetchall()
         return [user_from_row(row) for row in rows]
+
+    def list_email_codes(self, email: str | None = None, limit: int = 10) -> list[EmailCodeSummary]:
+        params: list[object] = []
+        where = ""
+        if email:
+            where = "WHERE users.email = ?"
+            params.append(normalize_email(email))
+        params.append(limit)
+        with self.connect() as db:
+            rows = db.execute(
+                f"""
+                SELECT users.email, email_codes.purpose, email_codes.code,
+                       email_codes.created_at, email_codes.expires_at, email_codes.used_at
+                FROM email_codes
+                JOIN users ON users.id = email_codes.user_id
+                {where}
+                ORDER BY email_codes.created_at DESC, email_codes.id DESC
+                LIMIT ?
+                """,
+                params,
+            ).fetchall()
+        return [
+            EmailCodeSummary(
+                email=str(row["email"]),
+                purpose=str(row["purpose"]),
+                code=str(row["code"]),
+                created_at=int(row["created_at"]),
+                expires_at=int(row["expires_at"]),
+                used_at=int(row["used_at"]) if row["used_at"] is not None else None,
+            )
+            for row in rows
+        ]
+
 
     def list_characters(self, user_id: int) -> list[CharacterSummary]:
         with self.connect() as db:
