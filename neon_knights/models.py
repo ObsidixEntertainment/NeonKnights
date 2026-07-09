@@ -41,6 +41,42 @@ class Gear:
 
 
 @dataclass(frozen=True)
+class Skill:
+    key: str
+    name: str
+    description: str
+
+
+@dataclass(frozen=True)
+class Material:
+    key: str
+    name: str
+    description: str
+
+
+@dataclass(frozen=True)
+class MiningNode:
+    key: str
+    name: str
+    material: str
+    yield_amount: int
+    required_level: int
+    xp: int
+    description: str
+
+
+@dataclass(frozen=True)
+class CraftRecipe:
+    key: str
+    name: str
+    item_key: str
+    materials: dict[str, int]
+    required_skills: dict[str, int]
+    xp: int
+    description: str
+
+
+@dataclass(frozen=True)
 class Enemy:
     key: str
     name: str
@@ -76,6 +112,8 @@ class Room:
     npcs: tuple[NPC, ...] = ()
     augments_for_sale: tuple[str, ...] = ()
     gear_for_sale: tuple[str, ...] = ()
+    mining_nodes: tuple[str, ...] = ()
+    craft_recipes: tuple[str, ...] = ()
     enemies: tuple[str, ...] = ()
     scan_text: str = ""
     ascii_art: str = ""
@@ -93,8 +131,11 @@ class Character:
     faction: str | None = None
     augments: set[str] = field(default_factory=set)
     inventory: set[str] = field(default_factory=lambda: {"street-knife", "patchwork-coat"})
+    materials: dict[str, int] = field(default_factory=dict)
     equipment: dict[str, str] = field(default_factory=lambda: {"weapon": "street-knife", "body": "patchwork-coat"})
     defeated_enemies: set[str] = field(default_factory=set)
+    enemy_hp: dict[str, int] = field(default_factory=dict)
+    skills_xp: dict[str, int] = field(default_factory=dict)
     tutorial_seen: bool = False
 
     def has_augment(self, key: str) -> bool:

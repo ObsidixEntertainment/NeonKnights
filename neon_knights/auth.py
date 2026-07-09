@@ -37,7 +37,7 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.exc import IntegrityError
 
 from .models import Character
-from .world import ANCESTRIES, GEAR
+from .world import ANCESTRIES, ENEMIES, GEAR, MATERIALS, SKILLS
 
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -509,8 +509,23 @@ def character_to_json(character: Character) -> str:
             "faction": character.faction,
             "augments": sorted(character.augments),
             "inventory": sorted(character.inventory),
+            "materials": {
+                key: int(amount)
+                for key, amount in sorted(character.materials.items())
+                if key in MATERIALS and int(amount) > 0
+            },
             "equipment": character.equipment,
             "defeated_enemies": sorted(character.defeated_enemies),
+            "enemy_hp": {
+                key: int(hp)
+                for key, hp in sorted(character.enemy_hp.items())
+                if int(hp) > 0
+            },
+            "skills_xp": {
+                key: int(xp)
+                for key, xp in sorted(character.skills_xp.items())
+                if key in SKILLS and int(xp) > 0
+            },
             "tutorial_seen": character.tutorial_seen,
         },
         sort_keys=True,
@@ -524,6 +539,21 @@ def character_from_json(payload: str) -> Character:
         for slot, item in dict(state.get("equipment", {})).items()
         if item in GEAR
     }
+    materials = {
+        str(key): max(0, int(amount))
+        for key, amount in dict(state.get("materials", {})).items()
+        if key in MATERIALS
+    }
+    skills_xp = {
+        str(key): max(0, int(xp))
+        for key, xp in dict(state.get("skills_xp", {})).items()
+        if key in SKILLS
+    }
+    enemy_hp = {
+        str(key): max(1, int(hp))
+        for key, hp in dict(state.get("enemy_hp", {})).items()
+        if key in ENEMIES
+    }
     character = Character(
         name=str(state["name"]),
         ancestry=str(state["ancestry"]),
@@ -535,8 +565,11 @@ def character_from_json(payload: str) -> Character:
         faction=state.get("faction"),
         augments=set(state.get("augments", [])),
         inventory=set(state.get("inventory", ["street-knife", "patchwork-coat"])),
+        materials=materials,
         equipment=equipment or {"weapon": "street-knife", "body": "patchwork-coat"},
         defeated_enemies=set(state.get("defeated_enemies", [])),
+        enemy_hp=enemy_hp,
+        skills_xp=skills_xp,
         tutorial_seen=bool(state.get("tutorial_seen", False)),
     )
     return character

@@ -581,6 +581,10 @@
           <button data-command="shop">shop</button>
           <button data-command="inventory">inventory</button>
           <button data-command="gear">gear</button>
+          <button data-command="skills">skills</button>
+          <button data-command="mine">mine</button>
+          <button data-command="craft">craft</button>
+          <button data-command="materials">materials</button>
           <button data-command="north">north</button>
           <button data-command="attack">attack</button>
           <button data-command="tutorial">tutorial</button>
@@ -603,8 +607,11 @@
         <div class="stat"><span class="label">Ancestry</span><span id="sheetAncestry" class="value">-</span></div>
         <div class="stat"><span class="label">Faction</span><span id="sheetFaction" class="value">-</span></div>
         <div class="stat"><span class="label">Health</span><span id="sheetHealth" class="value">-</span></div>
+        <div class="stat"><span class="label">Combat</span><span id="sheetCombat" class="value">-</span></div>
         <div class="stat"><span class="label">Credits</span><span id="sheetCredits" class="value">-</span></div>
         <div class="stat"><span class="label">Essence</span><span id="sheetEssence" class="value">-</span></div>
+        <div class="stat"><span class="label">Top Skills</span><span id="sheetSkills" class="value">-</span></div>
+        <div class="stat"><span class="label">Materials</span><span id="sheetMaterials" class="value">-</span></div>
         <div class="stat"><span class="label">Gear</span><span id="sheetGear" class="value">-</span></div>
         <div class="stat"><span class="label">Inventory</span><span id="sheetInventory" class="value">-</span></div>
         <div class="stat"><span class="label">Augments</span><span id="sheetAugments" class="value">-</span></div>
@@ -643,8 +650,11 @@
       ancestry: document.querySelector("#sheetAncestry"),
       faction: document.querySelector("#sheetFaction"),
       health: document.querySelector("#sheetHealth"),
+      combat: document.querySelector("#sheetCombat"),
       credits: document.querySelector("#sheetCredits"),
       essence: document.querySelector("#sheetEssence"),
+      skills: document.querySelector("#sheetSkills"),
+      materials: document.querySelector("#sheetMaterials"),
       gear: document.querySelector("#sheetGear"),
       inventory: document.querySelector("#sheetInventory"),
       augments: document.querySelector("#sheetAugments")
@@ -733,8 +743,11 @@
         sheet.ancestry.textContent = "-";
         sheet.faction.textContent = "-";
         sheet.health.textContent = "-";
+        sheet.combat.textContent = "-";
         sheet.credits.textContent = "-";
         sheet.essence.textContent = "-";
+        sheet.skills.textContent = "-";
+        sheet.materials.textContent = "-";
         sheet.gear.textContent = "-";
         sheet.inventory.textContent = "-";
         sheet.augments.textContent = "-";
@@ -745,8 +758,18 @@
       sheet.ancestry.textContent = state.ancestry;
       sheet.faction.textContent = state.faction;
       sheet.health.textContent = `${state.hp}/${state.maxHp}`;
+      sheet.combat.textContent = `Attack ${state.attackPower} / Armor ${state.armorRating}`;
       sheet.credits.textContent = state.credits;
       sheet.essence.textContent = state.essence;
+      sheet.skills.textContent = state.skills
+        .slice()
+        .sort((a, b) => (b.level - a.level) || (b.xp - a.xp))
+        .slice(0, 4)
+        .map((skill) => `${skill.name} ${skill.level}`)
+        .join(", ") || "None";
+      sheet.materials.textContent = state.materials.length
+        ? state.materials.map((material) => `${material.name} x${material.amount}`).join(", ")
+        : "None";
       sheet.gear.textContent = Object.entries(state.equipment).map(([slot, item]) => `${slot}: ${item}`).join(", ") || "None";
       sheet.inventory.textContent = state.inventory.length ? state.inventory.join(", ") : "None";
       sheet.augments.textContent = state.augments.length ? state.augments.join(", ") : "None";

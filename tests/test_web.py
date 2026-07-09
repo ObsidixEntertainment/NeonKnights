@@ -108,6 +108,27 @@ class WebSessionTests(unittest.TestCase):
         self.assertEqual(account["state"]["equipment"]["weapon"], "Neon Dagger")
         self.assertIn("Neon Dagger", inventory)
 
+    def test_skill_and_material_progress_persists(self) -> None:
+        token, _ = signup("runner@example.com", "neonpass", self.store)
+        web_session = WEB_SESSIONS[token]
+        create_character_for_session(web_session, "Runner", "witch", self.store)
+
+        mine, account = run_command_for_session(web_session, "mine", self.store)
+
+        self.assertIn("Cybernetics +35 XP", mine)
+        self.assertEqual(account["state"]["materials"][0]["key"], "scrap-alloy")
+        cybernetics = next(skill for skill in account["state"]["skills"] if skill["key"] == "cybernetics")
+        self.assertGreater(cybernetics["xp"], 0)
+
+        login_token, login_account = login("runner@example.com", "neonpass", self.store)
+        logged_in_session = WEB_SESSIONS[login_token]
+        character_id = login_account["characters"][0]["id"]
+        _, restored = select_character_for_session(logged_in_session, character_id, self.store)
+
+        self.assertEqual(restored["state"]["materials"][0]["key"], "scrap-alloy")
+        restored_cybernetics = next(skill for skill in restored["state"]["skills"] if skill["key"] == "cybernetics")
+        self.assertEqual(restored_cybernetics["xp"], 35)
+
     def test_quit_clears_active_character_but_keeps_account_session(self) -> None:
         token, _ = signup("runner@example.com", "neonpass", self.store)
         web_session = WEB_SESSIONS[token]

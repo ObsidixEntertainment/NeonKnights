@@ -19,7 +19,7 @@ from uuid import uuid4
 from .auth import AuthStore, CharacterSummary, MAX_CHARACTERS_PER_ACCOUNT, User
 from .engine import GameSession
 from .mailer import MailResult, send_mail
-from .world import ANCESTRIES, AUGMENTS, FACTIONS, GEAR
+from .world import ANCESTRIES, AUGMENTS, FACTIONS, GEAR, MATERIALS, SKILLS
 
 
 AUTH_COOKIE = "nk_auth"
@@ -676,8 +676,28 @@ def session_state(session: GameSession | None, character_id: int | None = None) 
         "faction": faction,
         "credits": character.credits,
         "essence": character.essence,
+        "skills": [
+            {
+                "key": key,
+                "name": skill.name,
+                "level": session.skill_level(key),
+                "xp": session.skill_xp(key),
+            }
+            for key, skill in SKILLS.items()
+        ],
+        "materials": [
+            {
+                "key": key,
+                "name": MATERIALS[key].name,
+                "amount": amount,
+            }
+            for key, amount in sorted(character.materials.items())
+            if key in MATERIALS and amount > 0
+        ],
         "hp": character.hp,
         "maxHp": character.max_hp,
+        "attackPower": session.attack_power(),
+        "armorRating": session.armor_rating(),
         "augments": [AUGMENTS[key].name for key in sorted(character.augments)],
         "inventory": [GEAR[key].name for key in sorted(character.inventory) if key in GEAR],
         "equipment": {

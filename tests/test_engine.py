@@ -94,6 +94,66 @@ class GameSessionTests(unittest.TestCase):
         self.assertIn("Training Drone drops", output)
         self.assertIn("training-drone", session.character.defeated_enemies)
         self.assertEqual(session.character.credits, 1240)
+        self.assertGreater(session.character.skills_xp["warfare"], 0)
+        self.assertGreater(session.character.skills_xp["occult"], 0)
+        self.assertGreater(session.character.skills_xp["stalker"], 0)
+
+    def test_skills_and_mining_train_over_time(self) -> None:
+        session = self.make_session()
+
+        skills = session.handle("skills")
+        mine = session.handle("mine")
+        materials = session.handle("materials")
+
+        self.assertIn("Cybernetics: level 1", skills)
+        self.assertIn("Scrap Alloy", mine)
+        self.assertIn("Cybernetics +35 XP", mine)
+        self.assertIn("Strength +7 XP", mine)
+        self.assertEqual(session.character.materials["scrap-alloy"], 2)
+        self.assertIn("Scrap Alloy", materials)
+
+    def test_crafting_requires_materials_and_adds_gear(self) -> None:
+        session = self.make_session()
+        session.handle("mine")
+        session.handle("mine")
+        session.handle("north")
+
+        craft = session.handle("craft scrap-plate")
+
+        self.assertIn("Crafted Scrap Plate", craft)
+        self.assertIn("Cybernetics +65 XP", craft)
+        self.assertIn("scrap-plate", session.character.inventory)
+        self.assertNotIn("scrap-alloy", session.character.materials)
+
+    def test_crafting_respects_skill_requirements(self) -> None:
+        session = self.make_session()
+        session.handle("north")
+
+        output = session.handle("craft warded-bit")
+
+        self.assertIn("Requirements not met", output)
+        self.assertIn("Cybernetics 2", output)
+
+    def test_combat_power_uses_leveled_skills(self) -> None:
+        session = self.make_session()
+        base_power = session.attack_power()
+
+        session.character.skills_xp["warfare"] = 300
+        session.character.skills_xp["occult"] = 300
+
+        self.assertGreater(session.attack_power(), base_power)
+
+    def test_combat_tracks_partial_enemy_damage(self) -> None:
+        session = self.make_session()
+        session.handle("north")
+
+        first = session.handle("attack market-ghoul")
+        second = session.handle("attack market-ghoul")
+
+        self.assertIn("Market Ghoul: 4/10 HP", first)
+        self.assertIn("Market Ghoul drops", second)
+        self.assertNotIn("market-ghoul", session.character.enemy_hp)
+        self.assertIn("market-ghoul", session.character.defeated_enemies)
 
 
 if __name__ == "__main__":

@@ -1,6 +1,19 @@
 from __future__ import annotations
 
-from .models import Ancestry, Augment, Enemy, Exit, Faction, Gear, NPC, Room
+from .models import (
+    Ancestry,
+    Augment,
+    CraftRecipe,
+    Enemy,
+    Exit,
+    Faction,
+    Gear,
+    Material,
+    MiningNode,
+    NPC,
+    Room,
+    Skill,
+)
 
 
 ANCESTRIES: dict[str, Ancestry] = {
@@ -194,6 +207,116 @@ GEAR: dict[str, Gear] = {
         1,
         "A pocket charm made from glass beads, burned copper, and a tiny breaker switch.",
     ),
+    "scrap-plate": Gear(
+        "scrap-plate",
+        "Scrap Plate",
+        "body",
+        0,
+        0,
+        5,
+        "Layered salvage plating hammered flat and charm-riveted over street clothes.",
+    ),
+    "circuit-saber": Gear(
+        "circuit-saber",
+        "Circuit Saber",
+        "weapon",
+        0,
+        13,
+        0,
+        "A short neon blade built from scavenged alloy, live wire, and spite.",
+    ),
+    "warded-bit": Gear(
+        "warded-bit",
+        "Warded Bit",
+        "charm",
+        0,
+        2,
+        2,
+        "A hacked coin that jitters when spells, bad code, or worse luck get close.",
+    ),
+}
+
+
+SKILLS: dict[str, Skill] = {
+    "technical": Skill("technical", "Technical Ability", "Hacking, computers, drones, locks, AI systems, and hostile networks."),
+    "strength": Skill("strength", "Strength", "Raw physical force, hauling, mining pressure, brawling, and grit."),
+    "firearms": Skill("firearms", "Weaponry: Firearms", "Pistols, rifles, smartguns, recoil control, and ranged lethality."),
+    "warfare": Skill("warfare", "Weaponry: Warfare", "Close combat, battlefield timing, blades, gauntlets, and weapon discipline."),
+    "augmentation": Skill("augmentation", "Augmentation", "Installing, tuning, upgrading, and eventually modifying augments for yourself or allies."),
+    "tactics": Skill("tactics", "Tactics", "Enemy reads, dialogue options, tactical routes, quest approaches, and battlefield planning."),
+    "medic": Skill("medic", "Medic", "Patch jobs, clinic work, blood bags, coolant, trauma care, and recovery."),
+    "stalker": Skill("stalker", "Stalker", "Death-dealer work: stealth, pursuit, assassination, hitman discipline, and lethal openings."),
+    "cybernetics": Skill("cybernetics", "Cybernetics", "Smithing, crafting, forging weapons, shaping cybernetic parts, and building future augmentations."),
+    "occult": Skill("occult", "Occult", "Curses, contracts, ghosts, old blood, infernal law, and ritual hazards."),
+}
+
+
+MATERIALS: dict[str, Material] = {
+    "scrap-alloy": Material("scrap-alloy", "Scrap Alloy", "Reusable chrome, frame metal, and busted drone shell."),
+    "glass-sigil": Material("glass-sigil", "Glass Sigil", "A shard of cathedral glass with a stubborn ward still humming."),
+    "circuit-thread": Material("circuit-thread", "Circuit Thread", "Conductive thread pulled from signs, kiosks, and dead charms."),
+}
+
+
+MINING_NODES: dict[str, MiningNode] = {
+    "track-scrap": MiningNode(
+        "track-scrap",
+        "Track Scrap",
+        "scrap-alloy",
+        2,
+        1,
+        35,
+        "Loose alloy ribs along the Redline maintenance trench.",
+    ),
+    "cathedral-glass": MiningNode(
+        "cathedral-glass",
+        "Cathedral Glass",
+        "glass-sigil",
+        1,
+        2,
+        55,
+        "Red-black stained glass that keeps remembering old prayers.",
+    ),
+    "server-thread": MiningNode(
+        "server-thread",
+        "Server Thread",
+        "circuit-thread",
+        2,
+        3,
+        70,
+        "Dead cable filaments braided through obsolete chapel racks.",
+    ),
+}
+
+
+CRAFT_RECIPES: dict[str, CraftRecipe] = {
+    "scrap-plate": CraftRecipe(
+        "scrap-plate",
+        "Scrap Plate",
+        "scrap-plate",
+        {"scrap-alloy": 4},
+        {"cybernetics": 1},
+        65,
+        "A heavier starter body piece for characters who would rather not bleed.",
+    ),
+    "warded-bit": CraftRecipe(
+        "warded-bit",
+        "Warded Bit",
+        "warded-bit",
+        {"scrap-alloy": 1, "glass-sigil": 2, "circuit-thread": 1},
+        {"cybernetics": 2, "occult": 2},
+        95,
+        "A charm that rewards crafters who have begun reading the city's weird signals.",
+    ),
+    "circuit-saber": CraftRecipe(
+        "circuit-saber",
+        "Circuit Saber",
+        "circuit-saber",
+        {"scrap-alloy": 3, "circuit-thread": 3},
+        {"cybernetics": 3, "technical": 2},
+        130,
+        "A crafted weapon for players leaning into chrome, code, and close violence.",
+    ),
 }
 
 
@@ -267,6 +390,7 @@ def build_rooms() -> dict[str, Room]:
                 ),
             ),
             npcs=(vexa,),
+            mining_nodes=("track-scrap",),
             enemies=("training-drone",),
             scan_text="The station grid shows old blood under platform three and a Choir relay in kiosk 7.",
             ascii_art=r"""
@@ -294,6 +418,8 @@ def build_rooms() -> dict[str, Room]:
             npcs=(mother_circuit,),
             augments_for_sale=("bionic-eyes", "neural-spellware"),
             gear_for_sale=("neon-dagger", "hex-thread-jacket", "rosary-fuse"),
+            mining_nodes=("track-scrap",),
+            craft_recipes=("scrap-plate", "warded-bit"),
             enemies=("market-ghoul",),
             scan_text="Your scan catches curse graffiti, counterfeit relic IDs, and a camera that blinks like an eye.",
             ascii_art=r"""
@@ -317,6 +443,8 @@ def build_rooms() -> dict[str, Room]:
             npcs=(brickfang,),
             augments_for_sale=("hydraulic-legs", "moon-silver-bones", "synth-heart"),
             gear_for_sale=("shock-gauntlet", "hex-thread-jacket"),
+            mining_nodes=("track-scrap",),
+            craft_recipes=("scrap-plate", "circuit-saber"),
             scan_text="The clinic network is clean, loud, and heavily defended by people who hate predators.",
             ascii_art=r"""
           _______________
@@ -337,6 +465,7 @@ def build_rooms() -> dict[str, Room]:
                 Exit("down", "data-chapel", "A sealed stairway descends through humming server racks."),
             ),
             npcs=(count_zero,),
+            mining_nodes=("cathedral-glass",),
             scan_text="Heat signatures gather behind confession booths. The donation vault has teeth.",
             ascii_art=r"""
           /\        /\        /\
@@ -357,6 +486,7 @@ def build_rooms() -> dict[str, Room]:
                 Exit("south", "synth-court", "Follow a corridor of contract sigils and server lights."),
             ),
             npcs=(archivist,),
+            craft_recipes=("warded-bit",),
             scan_text="The shelves rearrange around forbidden searches. Somebody recently requested your name.",
             ascii_art=r"""
        __________________________
@@ -378,6 +508,7 @@ def build_rooms() -> dict[str, Room]:
                 Exit("down", "data-chapel", "A logic-locked lift descends to the chapel servers."),
             ),
             npcs=(vexa,),
+            craft_recipes=("circuit-saber",),
             scan_text="Public case law scrolls overhead: personhood, fork rights, memory crimes, unpaid cloud rent.",
             ascii_art=r"""
       ______________________________
@@ -415,6 +546,8 @@ def build_rooms() -> dict[str, Room]:
                 Exit("north", "synth-court", "Take the logic lift to Synth Court."),
             ),
             npcs=(vexa, mother_circuit),
+            mining_nodes=("server-thread",),
+            craft_recipes=("warded-bit", "circuit-saber"),
             scan_text="A distributed hymn pings through the racks. Some replies arrive before the question.",
             ascii_art=r"""
         | | | | | | | | | | |
