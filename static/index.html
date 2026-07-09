@@ -212,9 +212,21 @@
 
     .terminal {
       display: grid;
-      grid-template-rows: auto auto minmax(0, 1fr) auto auto auto;
+      grid-template-rows: auto auto minmax(0, 1fr) auto;
       min-height: 0;
       background: rgba(4, 7, 8, 0.9);
+    }
+
+    .terminal > .terminal-head {
+      grid-row: 1;
+    }
+
+    #authPanel {
+      grid-row: 2;
+    }
+
+    #log {
+      grid-row: 3;
     }
 
     .terminal-title {
@@ -341,9 +353,9 @@
       display: grid;
       grid-template-columns: minmax(0, 1fr) auto;
       gap: 0.5rem;
+      align-items: center;
       padding: 0.85rem;
-      border-top: 1px solid var(--line);
-      background: rgba(255, 255, 255, 0.02);
+      background: transparent;
     }
 
     .roll {
@@ -351,14 +363,22 @@
     }
 
     .verify {
-      grid-template-columns: minmax(0, 1fr) auto auto;
+      grid-template-columns: minmax(12rem, 1fr) minmax(5.5rem, auto) minmax(6.75rem, auto);
+    }
+
+    .terminal-dock {
+      grid-row: 4;
+      display: grid;
+      min-height: 0;
+      border-top: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.02);
     }
 
     .quick {
       display: grid;
       grid-template-columns: repeat(4, minmax(0, 1fr));
       gap: 0.45rem;
-      padding: 0 0.85rem 0.85rem;
+      padding: 0.85rem;
       border-top: 1px solid var(--line);
     }
 
@@ -535,34 +555,36 @@
 
       <div id="log" class="log" aria-live="polite"></div>
 
-      <form id="verifyForm" class="composer verify hidden">
-        <input id="emailCode" name="emailCode" maxlength="12" placeholder="Email code" autocomplete="one-time-code">
-        <button class="secondary" type="submit">Verify</button>
-        <button id="sendCodeButton" class="secondary" type="button">Send Code</button>
-      </form>
+      <div class="terminal-dock" aria-label="Terminal controls">
+        <form id="verifyForm" class="composer verify hidden">
+          <input id="emailCode" name="emailCode" maxlength="12" placeholder="Email code" autocomplete="one-time-code">
+          <button class="secondary" type="submit">Verify</button>
+          <button id="sendCodeButton" class="secondary" type="button">Send Code</button>
+        </form>
 
-      <form id="createForm" class="roll hidden">
-        <input id="handle" name="handle" maxlength="32" placeholder="Handle" autocomplete="off" required>
-        <select id="ancestry" name="ancestry" aria-label="Ancestry">
-          __ANCESTRY_OPTIONS__
-        </select>
-        <button class="primary" type="submit">Create</button>
-      </form>
+        <form id="createForm" class="roll hidden">
+          <input id="handle" name="handle" maxlength="32" placeholder="Handle" autocomplete="off" required>
+          <select id="ancestry" name="ancestry" aria-label="Ancestry">
+            __ANCESTRY_OPTIONS__
+          </select>
+          <button class="primary" type="submit">Create</button>
+        </form>
 
-      <form id="commandForm" class="composer hidden">
-        <input id="command" name="command" placeholder=">" autocomplete="off">
-        <button class="primary" type="submit">Send</button>
-      </form>
+        <form id="commandForm" class="composer hidden">
+          <input id="command" name="command" placeholder=">" autocomplete="off">
+          <button class="primary" type="submit">Send</button>
+        </form>
 
-      <div id="quickCommands" class="quick hidden">
-        <button data-command="look">look</button>
-        <button data-command="scan">scan</button>
-        <button data-command="shop">shop</button>
-        <button data-command="inventory">inventory</button>
-        <button data-command="gear">gear</button>
-        <button data-command="north">north</button>
-        <button data-command="attack">attack</button>
-        <button data-command="tutorial">tutorial</button>
+        <div id="quickCommands" class="quick hidden">
+          <button data-command="look">look</button>
+          <button data-command="scan">scan</button>
+          <button data-command="shop">shop</button>
+          <button data-command="inventory">inventory</button>
+          <button data-command="gear">gear</button>
+          <button data-command="north">north</button>
+          <button data-command="attack">attack</button>
+          <button data-command="tutorial">tutorial</button>
+        </div>
       </div>
     </section>
 
@@ -663,16 +685,17 @@
       const emailVerified = Boolean(account?.user?.emailVerified);
       const slotsUsed = account?.characters?.length || 0;
       const maxSlots = account?.maxCharacters || 2;
-      const commandReady = active || (authed && admin);
+      const canEnterCity = authed && emailVerified;
+      const commandReady = canEnterCity && (active || admin);
 
       document.body.classList.toggle("is-authed", authed);
       authPanel.classList.toggle("hidden", authed);
       logoutButton.classList.toggle("hidden", !authed);
       verifyForm.classList.toggle("hidden", !authed || emailVerified);
-      createForm.classList.toggle("hidden", !authed || active || slotsUsed >= maxSlots);
+      createForm.classList.toggle("hidden", !canEnterCity || active || slotsUsed >= maxSlots);
       commandForm.classList.toggle("hidden", !commandReady);
-      quickCommands.classList.toggle("hidden", !active);
-      characterList.classList.toggle("hidden", !authed || active || slotsUsed === 0);
+      quickCommands.classList.toggle("hidden", !canEnterCity || !active);
+      characterList.classList.toggle("hidden", !canEnterCity || active || slotsUsed === 0);
 
       if (commandReady) {
         commandInput.focus();
@@ -743,15 +766,17 @@
     }
 
     function appendDelivery(data) {
-      if (data?.emailDelivery?.detail) {
-        append(data.emailDelivery.detail, "system");
-      }
       if (data?.emailDelivery?.code) {
-        append(`Prototype verification code: ${data.emailDelivery.code}`, "system");
+        append("Email delivery is not connected yet; use this prototype code for now.", "system");
+        append(`Verification code: ${data.emailDelivery.code}`, "system");
         const emailCode = document.querySelector("#emailCode");
         if (emailCode && !emailCode.value) {
           emailCode.value = data.emailDelivery.code;
         }
+        return;
+      }
+      if (data?.emailDelivery?.detail) {
+        append(data.emailDelivery.detail, "system");
       }
     }
 
