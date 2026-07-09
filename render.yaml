@@ -24,4 +24,6 @@ services:
       - key: NEON_KNIGHTS_MAIL_FROM
         value: "Neon Knights <no-reply@neonknights.local>"
       - key: NEON_KNIGHTS_REQUIRE_EMAIL_VERIFICATION
-        value: "0"
+        value: "1"
+      - key: NEON_KNIGHTS_PASS_THROUGH_CODES
+        value: "1"
