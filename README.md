@@ -70,7 +70,7 @@ $env:NEON_KNIGHTS_SMTP_PASSWORD="smtp-password"
 $env:NEON_KNIGHTS_MAIL_FROM="Neon Knights <no-reply@example.com>"
 ```
 
-Without SMTP, the app writes `.eml` files to `mail_outbox/` so signup, login, verification, password reset, and admin emails are still testable locally. Neon Knights never emails passwords; admin emails say which email to use and remind the admin to use the password they just entered.
+Without SMTP, the app writes `.eml` files to `mail_outbox/` so signup, login, verification, password reset, and admin emails are still testable locally. For logged-in verification flows, the browser also shows a prototype verification code when SMTP is missing; disable that with `NEON_KNIGHTS_PASS_THROUGH_CODES=0`. Password reset codes are not exposed to anonymous users. Neon Knights never emails passwords; admin emails say which email to use and remind the admin to use the password they just entered.
 
 Or install the script entry points:
 

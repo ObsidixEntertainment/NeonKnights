@@ -7,7 +7,7 @@ import json
 import mimetypes
 import os
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from http import HTTPStatus
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -44,7 +44,7 @@ class NeonKnightsHTTPServer(ThreadingHTTPServer):
 
 
 class NeonKnightsHandler(BaseHTTPRequestHandler):
-    server_version = "NeonKnightsWeb/0.3"
+    server_version = "NeonKnightsWeb/0.4"
 
     def do_GET(self) -> None:
         path = urlparse(self.path).path
@@ -541,7 +541,18 @@ def send_account_email(user: User, store: AuthStore, event: str) -> MailResult:
     else:
         subject = "Neon Knights email verification"
         body = verification_body(user, code)
-    return safe_send_mail(user.email, subject, body)
+    result = safe_send_mail(user.email, subject, body)
+    if should_pass_through_code(result, event):
+        return replace(result, code=code, purpose="verify-email")
+    return replace(result, purpose="verify-email")
+
+
+def should_pass_through_code(result: MailResult, event: str) -> bool:
+    if result.sent:
+        return False
+    if os.environ.get("NEON_KNIGHTS_PASS_THROUGH_CODES", "1") == "0":
+        return False
+    return event in {"signup", "login", "verify-email", "admin-bootstrap"}
 
 
 def safe_send_mail(recipient: str, subject: str, body: str) -> MailResult:
@@ -557,12 +568,16 @@ def with_mail(payload: dict[str, Any], result: MailResult) -> dict[str, Any]:
 
 
 def mail_result_to_dict(result: MailResult) -> dict[str, Any]:
-    return {
+    payload = {
         "recipient": result.recipient,
         "subject": result.subject,
         "sent": result.sent,
         "detail": result.detail,
     }
+    if result.code:
+        payload["code"] = result.code
+        payload["purpose"] = result.purpose or "verify-email"
+    return payload
 
 
 def verification_body(user: User, code: str) -> str:

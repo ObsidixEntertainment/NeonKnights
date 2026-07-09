@@ -725,6 +725,13 @@
       if (data?.emailDelivery?.detail) {
         append(data.emailDelivery.detail, "system");
       }
+      if (data?.emailDelivery?.code) {
+        append(`Prototype verification code: ${data.emailDelivery.code}`, "system");
+        const emailCode = document.querySelector("#emailCode");
+        if (emailCode && !emailCode.value) {
+          emailCode.value = data.emailDelivery.code;
+        }
+      }
     }
 
     loginForm.addEventListener("submit", async (event) => {

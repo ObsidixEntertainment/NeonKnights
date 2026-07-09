@@ -58,6 +58,8 @@ class WebSessionTests(unittest.TestCase):
         self.assertFalse(account["user"]["emailVerified"])
         self.assertFalse(account["user"]["isAdmin"])
         self.assertIn("emailDelivery", signup_account)
+        self.assertIn("code", signup_account["emailDelivery"])
+        self.assertEqual(signup_account["emailDelivery"]["purpose"], "verify-email")
 
     def test_login_and_command_updates_persisted_state(self) -> None:
         token, _ = signup("runner@example.com", "neonpass", self.store)
@@ -125,6 +127,7 @@ class WebSessionTests(unittest.TestCase):
         self.assertIn("emailDelivery", account)
         self.assertFalse(account["emailDelivery"]["sent"])
         self.assertIn("outbox", account["emailDelivery"]["detail"])
+        self.assertIn("code", account["emailDelivery"])
 
     def test_admin_bootstrap_and_admin_command(self) -> None:
         token, bootstrap_account = admin_bootstrap("admin@example.com", "neonpass", "test-admin-key", self.store)
@@ -170,6 +173,7 @@ class WebSessionTests(unittest.TestCase):
         reset_response = reset_password("runner@example.com", code, "newneonpass", self.store)
 
         self.assertIn("reset code", reset_request["output"])
+        self.assertNotIn("code", reset_request["emailDelivery"])
         self.assertIn("Password updated", reset_response["output"])
         with self.assertRaisesRegex(ValueError, "incorrect"):
             self.store.verify_user("runner@example.com", "neonpass")

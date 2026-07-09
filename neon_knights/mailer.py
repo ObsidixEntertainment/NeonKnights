@@ -15,6 +15,8 @@ class MailResult:
     subject: str
     sent: bool
     detail: str
+    code: str | None = None
+    purpose: str | None = None
 
 
 def send_mail(recipient: str, subject: str, body: str) -> MailResult:
