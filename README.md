@@ -9,6 +9,7 @@ The first playable slice includes:
 - Factions: Blood Court, Pack Union, Hex Grid, Chrome Synod, Synthetic Choir, and Infernal Compact.
 - A small connected city district with NPCs, room descriptions, travel, scanning, faction joining, and augment installation.
 - Inventory, gear, shops, starter combat, ASCII room flair, and a short tutorial.
+- City and world ASCII maps through `map` and `wmap`.
 - Ten persistent trainable skills with XP: Technical Ability, Strength, Weaponry: Firearms, Weaponry: Warfare, Augmentation, Tactics, Medic, Stalker, Cybernetics, and Occult.
 - Skill-weighted combat, mining nodes, materials, and Cybernetics crafting recipes with requirements.
 - Email signup/login with two character slots per account, verification codes, login notices, password reset codes, and a first-admin bootstrap flow.
@@ -114,6 +115,8 @@ If Windows does not have Telnet enabled, you can still use the CLI mode above.
 help
 look
 scan
+map
+wmap
 go north
 north
 shop

@@ -21,6 +21,8 @@ from .world import (
 ALIASES = {
     "l": "look",
     "x": "look",
+    "citymap": "map",
+    "worldmap": "wmap",
     "n": "go north",
     "s": "go south",
     "e": "go east",
@@ -59,17 +61,78 @@ TUTORIAL_TEXT = """
 Street tutorial:
   1. look              Read the room and exits.
   2. scan              Notice hidden magic, tech, heat, scent, or code.
-  3. north             Move to Neon Bazaar.
-  4. shop              See gear and augment vendors.
-  5. buy neon-dagger   Buy a starter weapon.
-  6. inventory         Check what you carry.
-  7. equip neon-dagger Equip the weapon.
-  8. attack market-ghoul Try basic combat.
-  9. skills            Check your trainable levels.
- 10. mine              Gather materials where deposits exist.
- 11. craft             Build gear when you meet the requirements.
+  3. map               Show the Redline city district.
+  4. wmap              Show the larger world map.
+  5. north             Move to Neon Bazaar.
+  6. shop              See gear and augment vendors.
+  7. buy neon-dagger   Buy a starter weapon.
+  8. inventory         Check what you carry.
+  9. equip neon-dagger Equip the weapon.
+ 10. attack market-ghoul Try basic combat.
+ 11. skills            Check your trainable levels.
+ 12. mine              Gather materials where deposits exist.
+ 13. craft             Build gear when you meet the requirements.
 
 You can type tutorial again any time.
+"""
+
+
+CITY_ROOM_CODES = {
+    "redline-station": "RS",
+    "neon-bazaar": "NB",
+    "moonworks-clinic": "MC",
+    "blood-cathedral": "BC",
+    "hexspire-library": "HL",
+    "synth-court": "SC",
+    "undercity-kennels": "UK",
+    "data-chapel": "DC",
+    "rooftop-garden": "RG",
+}
+
+
+CITY_MAP_ASCII = r"""
+REDLINE DISTRICT // OBSIDIX MEGACITY
+
+                         [RG] Rooftop Garden
+                          ^  up from [RS], Hydraulic Legs
+                          |
+            [MC] Moonworks Clinic
+             |  south to [NB], down to [UK]
+             v
+[BC] Blood Cathedral -- [NB] Neon Bazaar -- [HL] Hexspire Library
+ | down/up                | south/north           | south/north
+ |                        |                       |
+[DC] Data Chapel ---- [SC] Synth Court ---- [RS] Redline Station ---- [UK] Undercity Kennels
+                 north/down        west/east          west/east
+
+Exit checksum:
+  [RS] north NB, east SC, west UK, up RG
+  [NB] south RS, north MC, east HL, west BC
+  [MC] south NB, down UK
+  [BC] east NB, down DC
+  [HL] west NB, south SC
+  [SC] west RS, north HL, down DC
+  [DC] up BC, north SC
+  [UK] east RS, up MC
+"""
+
+
+WORLD_MAP_ASCII = r"""
+NEON KNIGHTS // WORLD MAP
+
+                         N
+                         ^
+        Moon-Scar Wilds  |       Blackline Orbital Elevator
+              /\         |              ||
+             /  \        |              ||
+    Iron Saint Coast --- Obsidix Megacity --- Ashline Wastes
+          ~~ docks ~~       [REDLINE]         dust / drones / relic war
+             \                                  /
+              \                                /
+               Sunken Freeport ---- Hellsmouth Gate
+                    old net          contracts / demons / forbidden transit
+
+Known playable slice: Obsidix Megacity, Redline District.
 """
 
 
@@ -119,6 +182,10 @@ class GameSession:
             return TUTORIAL_TEXT.strip()
         if verb == "ascii":
             return self.ascii()
+        if verb == "map":
+            return self.city_map()
+        if verb == "wmap":
+            return self.world_map()
         if verb == "look":
             return self.look()
         if verb == "scan":
@@ -170,6 +237,8 @@ class GameSession:
             Commands:
               look / l             Show the current room.
               scan                 Read hidden signals, magic, heat, scent, or code.
+              map                  Show the city district map.
+              wmap                 Show the larger world map.
               go <direction>       Move through an exit. Shortcuts: n, s, e, w, u, d.
               talk <npc>           Speak with a named NPC.
               ascii / art          Show room ASCII art.
@@ -218,6 +287,19 @@ class GameSession:
 
     def ascii(self) -> str:
         return self.room.ascii_art.strip() if self.room.ascii_art else "No local ASCII signal resolves here."
+
+    def city_map(self) -> str:
+        code = CITY_ROOM_CODES.get(self.room.key, "??")
+        return join_blocks(
+            CITY_MAP_ASCII,
+            f"Current signal: [{code}] {self.room.name}.",
+        )
+
+    def world_map(self) -> str:
+        return join_blocks(
+            WORLD_MAP_ASCII,
+            f"Current region: Obsidix Megacity / Redline District / {self.room.name}.",
+        )
 
     def scan(self) -> str:
         ancestry = ANCESTRIES[self.character.ancestry]

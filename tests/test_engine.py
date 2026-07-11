@@ -27,6 +27,18 @@ class GameSessionTests(unittest.TestCase):
         self.assertIn("Neon Bazaar", output)
         self.assertEqual(session.character.location, "neon-bazaar")
 
+    def test_city_and_world_maps_show_location_context(self) -> None:
+        session = self.make_session()
+
+        city_map = session.handle("map")
+        world_map = session.handle("wmap")
+
+        self.assertIn("REDLINE DISTRICT", city_map)
+        self.assertIn("[RS] Redline Station", city_map)
+        self.assertIn("Current signal: [RS] Redline Station", city_map)
+        self.assertIn("NEON KNIGHTS // WORLD MAP", world_map)
+        self.assertIn("Obsidix Megacity", world_map)
+
     def test_locked_rooftop_requires_hydraulic_legs(self) -> None:
         session = self.make_session()
 
