@@ -62,6 +62,13 @@
       background: rgba(22, 28, 27, 0.96);
     }
 
+    button:disabled,
+    input:disabled,
+    select:disabled {
+      cursor: wait;
+      opacity: 0.62;
+    }
+
     button:hover, button:focus-visible,
     input:focus, select:focus {
       outline: none;
@@ -803,13 +810,52 @@
       }
     }
 
+    function pendingControls(target) {
+      if (target instanceof HTMLFormElement) {
+        return Array.from(target.querySelectorAll("button, input, select"));
+      }
+      return [target];
+    }
+
+    async function withPending(target, label, action) {
+      if (target.dataset.pending === "true") return null;
+
+      target.dataset.pending = "true";
+      const controls = pendingControls(target);
+      const labelButton = target instanceof HTMLFormElement
+        ? target.querySelector("button[type='submit']")
+        : target;
+      const originalLabel = labelButton?.textContent || "";
+
+      controls.forEach((control) => {
+        control.disabled = true;
+      });
+      if (labelButton) {
+        labelButton.textContent = label;
+      }
+      append(label, "system");
+
+      try {
+        return await action();
+      } finally {
+        controls.forEach((control) => {
+          control.disabled = false;
+        });
+        if (labelButton) {
+          labelButton.textContent = originalLabel;
+        }
+        delete target.dataset.pending;
+      }
+    }
+
     loginForm.addEventListener("submit", async (event) => {
       event.preventDefault();
       try {
-        const data = await postJson("/api/login", {
+        const data = await withPending(loginForm, "Contacting Redline...", () => postJson("/api/login", {
           email: document.querySelector("#loginEmail").value,
           password: document.querySelector("#loginPassword").value
-        });
+        }));
+        if (!data) return;
         log.textContent = "";
         append("Account linked. Select a body or create one.", "system");
         appendDelivery(data);
@@ -822,10 +868,11 @@
     signupForm.addEventListener("submit", async (event) => {
       event.preventDefault();
       try {
-        const data = await postJson("/api/signup", {
+        const data = await withPending(signupForm, "Creating account...", () => postJson("/api/signup", {
           email: document.querySelector("#signupEmail").value,
           password: document.querySelector("#signupPassword").value
-        });
+        }));
+        if (!data) return;
         log.textContent = "";
         append("Account created. Two character slots are available.", "system");
         appendDelivery(data);
@@ -838,11 +885,12 @@
     adminForm.addEventListener("submit", async (event) => {
       event.preventDefault();
       try {
-        const data = await postJson("/api/admin/bootstrap", {
+        const data = await withPending(adminForm, "Claiming admin...", () => postJson("/api/admin/bootstrap", {
           email: document.querySelector("#adminEmail").value,
           password: document.querySelector("#adminPassword").value,
           bootstrapKey: document.querySelector("#adminBootstrapKey").value
-        });
+        }));
+        if (!data) return;
         log.textContent = "";
         append(data.output || "Admin account claimed.", "system");
         appendDelivery(data);
@@ -854,9 +902,10 @@
 
     sendResetButton.addEventListener("click", async () => {
       try {
-        const data = await postJson("/api/request-password-reset", {
+        const data = await withPending(sendResetButton, "Sending code...", () => postJson("/api/request-password-reset", {
           email: document.querySelector("#resetEmail").value
-        });
+        }));
+        if (!data) return;
         append(data.output || "Reset code sent.", "system");
         appendDelivery(data);
       } catch (error) {
@@ -867,11 +916,12 @@
     resetForm.addEventListener("submit", async (event) => {
       event.preventDefault();
       try {
-        const data = await postJson("/api/reset-password", {
+        const data = await withPending(resetForm, "Setting password...", () => postJson("/api/reset-password", {
           email: document.querySelector("#resetEmail").value,
           code: document.querySelector("#resetCode").value,
           password: document.querySelector("#resetPassword").value
-        });
+        }));
+        if (!data) return;
         append(data.output || "Password updated.", "system");
         appendDelivery(data);
         renderAccount(data);
@@ -883,9 +933,10 @@
     verifyForm.addEventListener("submit", async (event) => {
       event.preventDefault();
       try {
-        const data = await postJson("/api/verify-email", {
+        const data = await withPending(verifyForm, "Verifying...", () => postJson("/api/verify-email", {
           code: document.querySelector("#emailCode").value
-        });
+        }));
+        if (!data) return;
         append(data.output || "Email verified.", "system");
         renderAccount(data);
       } catch (error) {
@@ -895,7 +946,8 @@
 
     sendCodeButton.addEventListener("click", async () => {
       try {
-        const data = await postJson("/api/request-email-code");
+        const data = await withPending(sendCodeButton, "Sending code...", () => postJson("/api/request-email-code"));
+        if (!data) return;
         append(data.output || "Email code sent.", "system");
         appendDelivery(data);
         renderAccount(data);
@@ -907,10 +959,11 @@
     createForm.addEventListener("submit", async (event) => {
       event.preventDefault();
       try {
-        const data = await postJson("/api/character", {
+        const data = await withPending(createForm, "Creating body...", () => postJson("/api/character", {
           name: document.querySelector("#handle").value,
           ancestry: document.querySelector("#ancestry").value
-        });
+        }));
+        if (!data) return;
         log.textContent = "";
         append(data.output, "system");
         renderAccount(data);
@@ -923,9 +976,10 @@
       const button = event.target.closest("button[data-character-id]");
       if (!button) return;
       try {
-        const data = await postJson("/api/select-character", {
+        const data = await withPending(button, "Entering...", () => postJson("/api/select-character", {
           characterId: Number(button.dataset.characterId)
-        });
+        }));
+        if (!data) return;
         log.textContent = "";
         append(data.output, "system");
         renderAccount(data);
@@ -957,10 +1011,15 @@
     });
 
     logoutButton.addEventListener("click", async () => {
-      const data = await postJson("/api/logout");
-      log.textContent = "";
-      append("Logged out.", "system");
-      renderAccount(data);
+      try {
+        const data = await withPending(logoutButton, "Logging out...", () => postJson("/api/logout"));
+        if (!data) return;
+        log.textContent = "";
+        append("Logged out.", "system");
+        renderAccount(data);
+      } catch (error) {
+        append(error.message, "system");
+      }
     });
 
     fetch("/api/state")
