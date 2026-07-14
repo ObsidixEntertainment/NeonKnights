@@ -9,6 +9,8 @@ services:
     envVars:
       - key: NEON_KNIGHTS_ADMIN_BOOTSTRAP_KEY
         sync: false
+      - key: NEON_KNIGHTS_ADMIN_IP_ALLOWLIST
+        sync: false
       - key: DATABASE_URL
         sync: false
       - key: NEON_KNIGHTS_SMTP_HOST

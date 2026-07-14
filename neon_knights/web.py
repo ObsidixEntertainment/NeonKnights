@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import hmac
 import html
+import ipaddress
 import json
 import mimetypes
 import os
@@ -61,7 +62,12 @@ class NeonKnightsHandler(BaseHTTPRequestHandler):
             return
         if path == "/api/state":
             web_session = self.current_web_session()
-            self.send_json(account_payload(web_session) if web_session else anonymous_payload())
+            payload = account_payload(web_session) if web_session else anonymous_payload()
+            payload["adminBootstrap"] = admin_bootstrap_status(self.client_ip())
+            self.send_json(payload)
+            return
+        if path == "/api/admin/bootstrap-status":
+            self.send_json({"adminBootstrap": admin_bootstrap_status(self.client_ip())})
             return
         if path.startswith("/static/"):
             self.send_static(path.removeprefix("/static/"))
@@ -92,6 +98,7 @@ class NeonKnightsHandler(BaseHTTPRequestHandler):
                     str(payload.get("email", "")),
                     str(payload.get("password", "")),
                     str(payload.get("bootstrapKey", "")),
+                    client_ip=self.client_ip(),
                 )
                 self.send_json(response, cookie=token)
                 return
@@ -182,6 +189,12 @@ class NeonKnightsHandler(BaseHTTPRequestHandler):
         token = self.current_token()
         return WEB_SESSIONS.get(token) if token else None
 
+    def client_ip(self) -> str:
+        forwarded = self.headers.get("X-Forwarded-For", "")
+        if forwarded:
+            return forwarded.split(",", 1)[0].strip()
+        return self.client_address[0]
+
     def require_web_session(self) -> WebSession:
         web_session = self.current_web_session()
         if web_session is None:
@@ -266,6 +279,7 @@ def admin_bootstrap(
     password: str,
     bootstrap_key: str,
     store: AuthStore | None = None,
+    client_ip: str | None = None,
 ) -> tuple[str, dict[str, Any]]:
     store = store or get_store()
     expected = os.environ.get("NEON_KNIGHTS_ADMIN_BOOTSTRAP_KEY", "")
@@ -273,6 +287,8 @@ def admin_bootstrap(
         raise ValueError("Admin bootstrap key is not configured on this server.")
     if store.admin_count() > 0:
         raise ValueError("Admin bootstrap is closed because an admin already exists.")
+    if not admin_ip_allowed(client_ip):
+        raise ValueError("Admin bootstrap is restricted to an allowed owner IP address.")
     if not hmac.compare_digest(bootstrap_key.strip(), expected.strip()):
         raise ValueError("Admin bootstrap key is incorrect.")
 
@@ -289,6 +305,55 @@ def admin_bootstrap(
     response = with_mail(account_payload(WEB_SESSIONS[token], store), delivery)
     response["output"] = "First admin account claimed. Your admin login details were sent to your email channel."
     return token, response
+
+
+def admin_bootstrap_status(client_ip: str | None = None, store: AuthStore | None = None) -> dict[str, Any]:
+    store = store or get_store()
+    admin_count = store.admin_count()
+    key_configured = bool(os.environ.get("NEON_KNIGHTS_ADMIN_BOOTSTRAP_KEY", "").strip())
+    allowlist = admin_ip_allowlist_entries()
+    ip_restricted = bool(allowlist)
+    ip_allowed = admin_ip_allowed(client_ip) if client_ip else not ip_restricted
+    return {
+        "available": admin_count == 0 and key_configured and ip_allowed,
+        "adminCount": admin_count,
+        "keyConfigured": key_configured,
+        "ipRestricted": ip_restricted,
+        "ipAllowed": ip_allowed,
+    }
+
+
+def admin_ip_allowlist_entries() -> list[str]:
+    values = [
+        os.environ.get("NEON_KNIGHTS_ADMIN_IP_ALLOWLIST", ""),
+        os.environ.get("NEON_KNIGHTS_OWNER_IP_ALLOWLIST", ""),
+    ]
+    entries: list[str] = []
+    for raw in values:
+        entries.extend(entry.strip() for entry in raw.replace(";", ",").split(",") if entry.strip())
+    return entries
+
+
+def admin_ip_allowed(client_ip: str | None) -> bool:
+    entries = admin_ip_allowlist_entries()
+    if not entries:
+        return True
+    if not client_ip:
+        return False
+    try:
+        ip = ipaddress.ip_address(client_ip.strip())
+    except ValueError:
+        return False
+    for entry in entries:
+        try:
+            if "/" in entry:
+                if ip in ipaddress.ip_network(entry, strict=False):
+                    return True
+            elif ip == ipaddress.ip_address(entry):
+                return True
+        except ValueError:
+            continue
+    return False
 
 
 def request_password_reset(email: str, store: AuthStore | None = None) -> dict[str, Any]:

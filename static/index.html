@@ -632,6 +632,7 @@
     const log = document.querySelector("#log");
     const authPanel = document.querySelector("#authPanel");
     const authModeButtons = document.querySelectorAll("[data-auth-mode]");
+    const adminModeButton = document.querySelector("[data-auth-mode='admin']");
     const authForms = document.querySelectorAll("[data-auth-form]");
     const loginForm = document.querySelector("#loginForm");
     const signupForm = document.querySelector("#signupForm");
@@ -697,6 +698,31 @@
       log.scrollTop = log.scrollHeight;
     }
 
+    function updateAdminBootstrapStatus(account) {
+      const status = account?.adminBootstrap;
+      if (!adminModeButton || !status) return;
+
+      const available = Boolean(status.available);
+      adminModeButton.disabled = !available;
+      adminModeButton.hidden = status.adminCount > 0;
+      if (available) {
+        adminModeButton.title = status.ipRestricted ? "Owner IP accepted. Admin claim is open." : "Admin claim is open.";
+      } else if (status.adminCount > 0) {
+        adminModeButton.title = "Admin bootstrap is closed.";
+      } else if (status.ipRestricted && !status.ipAllowed) {
+        adminModeButton.title = "Admin claim is restricted to the configured owner IP.";
+      } else if (!status.keyConfigured) {
+        adminModeButton.title = "Admin bootstrap key is not configured.";
+      } else {
+        adminModeButton.title = "Admin claim is unavailable.";
+      }
+
+      const adminFormVisible = !adminForm.classList.contains("hidden");
+      if (!available && adminFormVisible) {
+        setAuthMode("login");
+      }
+    }
+
     function setMode(account) {
       const authed = Boolean(account?.authenticated);
       const active = Boolean(account?.state);
@@ -740,6 +766,7 @@
       sheet.role.textContent = account?.user?.isAdmin ? "Admin" : (account?.authenticated ? "Player" : "-");
       sheet.emailAuth.textContent = account?.user?.emailVerified ? "Verified" : (account?.authenticated ? "Unverified" : "-");
       sheet.slots.textContent = `${account?.characters?.length || 0}/${account?.maxCharacters || 2}`;
+      updateAdminBootstrapStatus(account);
       renderCharacters(account);
       renderState(account?.state || null);
       setMode(account);

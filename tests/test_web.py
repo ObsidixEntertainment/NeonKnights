@@ -8,6 +8,7 @@ from neon_knights.auth import AuthStore
 from neon_knights.web import (
     WEB_SESSIONS,
     admin_bootstrap,
+    admin_bootstrap_status,
     create_character_for_session,
     login,
     request_email_code_for_session,
@@ -33,14 +34,20 @@ class WebSessionTests(unittest.TestCase):
         self.store = AuthStore(f"{self.tempdir.name}/test.sqlite3")
         self.old_outbox = os.environ.get("NEON_KNIGHTS_MAIL_OUTBOX")
         self.old_admin_key = os.environ.get("NEON_KNIGHTS_ADMIN_BOOTSTRAP_KEY")
+        self.old_admin_ip_allowlist = os.environ.get("NEON_KNIGHTS_ADMIN_IP_ALLOWLIST")
+        self.old_owner_ip_allowlist = os.environ.get("NEON_KNIGHTS_OWNER_IP_ALLOWLIST")
         os.environ["NEON_KNIGHTS_MAIL_OUTBOX"] = f"{self.tempdir.name}/outbox"
         os.environ["NEON_KNIGHTS_ADMIN_BOOTSTRAP_KEY"] = "test-admin-key"
+        os.environ.pop("NEON_KNIGHTS_ADMIN_IP_ALLOWLIST", None)
+        os.environ.pop("NEON_KNIGHTS_OWNER_IP_ALLOWLIST", None)
 
     def tearDown(self) -> None:
         WEB_SESSIONS.clear()
         self.store.close()
         restore_env("NEON_KNIGHTS_MAIL_OUTBOX", self.old_outbox)
         restore_env("NEON_KNIGHTS_ADMIN_BOOTSTRAP_KEY", self.old_admin_key)
+        restore_env("NEON_KNIGHTS_ADMIN_IP_ALLOWLIST", self.old_admin_ip_allowlist)
+        restore_env("NEON_KNIGHTS_OWNER_IP_ALLOWLIST", self.old_owner_ip_allowlist)
         self.tempdir.cleanup()
 
     def test_signup_character_creation_and_demon_state(self) -> None:
@@ -165,6 +172,36 @@ class WebSessionTests(unittest.TestCase):
     def test_admin_bootstrap_rejects_bad_key(self) -> None:
         with self.assertRaisesRegex(ValueError, "incorrect"):
             admin_bootstrap("admin@example.com", "neonpass", "bad-key", self.store)
+
+    def test_admin_bootstrap_can_be_restricted_by_owner_ip(self) -> None:
+        os.environ["NEON_KNIGHTS_ADMIN_IP_ALLOWLIST"] = "203.0.113.10, 2001:db8::/32"
+
+        blocked_status = admin_bootstrap_status("198.51.100.9", self.store)
+        allowed_status = admin_bootstrap_status("203.0.113.10", self.store)
+
+        self.assertFalse(blocked_status["available"])
+        self.assertFalse(blocked_status["ipAllowed"])
+        self.assertTrue(blocked_status["ipRestricted"])
+        self.assertTrue(allowed_status["available"])
+        with self.assertRaisesRegex(ValueError, "owner IP"):
+            admin_bootstrap(
+                "blocked-admin@example.com",
+                "neonpass",
+                "test-admin-key",
+                self.store,
+                client_ip="198.51.100.9",
+            )
+
+        token, account = admin_bootstrap(
+            "admin@example.com",
+            "neonpass",
+            "test-admin-key",
+            self.store,
+            client_ip="2001:db8::12",
+        )
+
+        self.assertIn(token, WEB_SESSIONS)
+        self.assertTrue(account["user"]["isAdmin"])
 
     def test_non_admin_cannot_use_admin_commands(self) -> None:
         token, _ = signup("runner@example.com", "neonpass", self.store)

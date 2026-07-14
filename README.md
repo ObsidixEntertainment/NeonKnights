@@ -43,6 +43,7 @@ Set a first-admin key before launch:
 
 ```powershell
 $env:NEON_KNIGHTS_ADMIN_BOOTSTRAP_KEY="your-private-first-admin-key"
+$env:NEON_KNIGHTS_ADMIN_IP_ALLOWLIST="your.public.ip.address/32"
 ```
 
 Then open the browser app and use the Claim Admin form with:
@@ -52,6 +53,8 @@ Then open the browser app and use the Claim Admin form with:
 - Bootstrap key
 
 Bootstrap closes automatically after the first admin account exists. Admins can use in-game admin commands from the command box:
+
+`NEON_KNIGHTS_ADMIN_IP_ALLOWLIST` is optional, but recommended on a live server. It accepts comma-separated IPs or CIDR ranges and restricts the first-admin bootstrap route to the configured owner address. This is an extra gate on top of the bootstrap key and account password, not a replacement for login.
 
 ```text
 admin help
